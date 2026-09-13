@@ -1,5 +1,6 @@
 # 🎮 NES Emulator in Rust
 
+[![CI](https://github.com/AFE123xr/NES-Emulator/actions/workflows/ci.yml/badge.svg)](https://github.com/AFE123xr/NES-Emulator/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-stable-brightgreen.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://img.shields.io/badge/tests-19%20passed%20(100%25)-success.svg)](#testing--verification)
@@ -180,32 +181,50 @@ Run any standard `.nes` ROM file directly by providing the path:
 
 ## 🧪 Testing & Verification
 
-The emulator includes an extensive automated test suite covering CPU instruction execution, PPU rendering, APU audio synthesis, and mapper banking:
+The project enforces strict quality control through automated continuous integration (CI) and a comprehensive test suite covering CPU instruction accuracy, PPU rendering, APU audio synthesis, and mapper banking.
 
+### Local CI-Dev Verification
+Run the complete CI check locally with one command:
 ```bash
-# Run all unit and integration tests
+./scripts/ci-dev.sh
+```
+This automated pipeline runs:
+1. **Formatting Check**: Verifies adherence to standard Rust style (`cargo fmt --check`).
+2. **Compilation Check**: Validates that all library targets and binary entrypoints compile cleanly (`cargo check --all-targets`).
+3. **Linter**: Enforces zero warnings with Clippy (`cargo clippy --all-targets -- -D warnings`).
+4. **Release Build**: Compiles the optimized release binary (`cargo build --release`).
+5. **ROM-Free Unit & Fixture Tests**: Runs all unit tests without requiring external ROM downloads (`cargo test`).
+6. **Headless Execution Check**: Confirms CLI functionality and headless execution on `nestest.nes`.
+
+### Running Tests Manually
+```bash
+# Run all unit tests and committed fixture tests (no downloaded ROMs required)
 cargo test
 
-# Run tests with diagnostic output
+# Run tests with live output
 cargo test -- --nocapture
 
-# Run nestest golden-log verification
+# Run cycle-accurate golden master CPU verification
 cargo test --test nestest
 
-# Run Blargg's CPU instruction test
+# Run Blargg's official instruction tests
 cargo test --test blargg_tests
 
-# Run Zelda PPU Sprite 0 and split-scroll test
-cargo test --test zelda_sprite0
+# Run APU sound channel tests
+cargo test --test apu_tests
 
-# Run Zelda Audio waveform diagnostic test (generates WAV dumps)
-cargo test --test zelda_audio_test
+# Run PPU registers and scrolling tests
+cargo test --test ppu_tests
+
+# Run mapper banking and IRQ tests
+cargo test --test mapper_tests
 ```
 
 ### Verification Highlights
-- **`nestest.nes`**: Matches all 8,991 instructions and cycles against `nestest.log` golden master.
+- **No External ROMs Required for CI**: Unit tests and integration tests use pure in-memory data or committed fixtures in `tests/fixtures/` (`nestest.nes`, `nestest.log`, `official_only.nes`). Optional tests requiring copyrighted commercial ROMs cleanly skip when `ROM_PATH` / `NES_ROM` is unset.
+- **`nestest.nes`**: Matches all 8,991 CPU instructions and cycles against `nestest.log` golden master.
 - **Blargg's `official_only.nes`**: All 56 official 6502 instructions pass.
-- **Zero Warnings**: Strictly enforced clean `cargo clippy --all-targets` and `cargo fmt --check`.
+- **Zero Warnings Policy**: Enforces clean `cargo clippy --all-targets` and `cargo fmt --check`.
 
 ---
 
@@ -221,6 +240,11 @@ Benchmarked on Apple Silicon (M-series) in release mode:
 
 ```text
 NES-Emulator/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                # Automated GitHub Actions CI workflow
+├── scripts/
+│   └── ci-dev.sh                 # Local CI-dev test & verification runner
 ├── Cargo.toml                    # Rust crate configuration & dependencies
 ├── build.rs                      # Native SDL2 library linking
 ├── README.md                     # Documentation and screenshots

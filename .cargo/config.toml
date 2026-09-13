@@ -1,0 +1,4 @@
+[alias]
+ci-check = "check --all-targets"
+ci-lint = "clippy --all-targets -- -D warnings"
+ci-test = "test --test apu_tests --test ppu_tests --test mapper_tests --test screenshot_tests --test nestest --test blargg_tests"
