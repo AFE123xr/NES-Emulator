@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  build-and-test:
+    name: Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install SDL2 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev
+
+      - name: Install SDL2 (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install sdl2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check code formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check compilation (binary & targets)
+        run: cargo check --all-targets --verbose
+
+      - name: Run linter (Clippy)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build binary (Debug)
+        run: cargo build --verbose
+
+      - name: Build binary (Release)
+        run: cargo build --release --verbose
+
+      - name: Run unit & fixture tests
+        run: cargo test --verbose
+
+      - name: Verify CLI & headless execution
+        run: |
+          ./target/release/nes --help
+          ./target/release/nes tests/fixtures/nestest.nes --headless 100
