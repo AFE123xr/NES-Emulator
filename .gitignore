@@ -1,13 +1,73 @@
-target/
-.DS_Store
-.vscode/
-helper/
+# Rust / Cargo build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# Emulator outputs (screenshots & audio recordings)
+/screenshots/
+/audio_dumps/
+*.bmp
+*.wav
+
+# Save states and battery-backed PRG RAM
+*.sav
+*.save
+*.srm
+*.state
+*.state[0-9]
+
+# ROMs (allow test fixtures under tests/)
+roms/
 .roms/
-zelda.save
-zeldabackup.nes
+*.nes
+*.fds
+*.unf
+*.unif
+!tests/fixtures/**
+
+# Logs and debug output
+*.log
+!tests/fixtures/**
 output.txt
+commit_log.txt
+error.txt
 dissas/
-reference_code/notes.md
-nestest.nes
+helper/
 nes6502/
-zelda2.save
+
+# Operating System files
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+[Dd]esktop.ini
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+
+# Python (helper scripts & tools)
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
