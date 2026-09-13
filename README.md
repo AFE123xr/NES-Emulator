@@ -1,158 +1,276 @@
-# NES Emulator in Rust
+# 🎮 NES Emulator in Rust
 
-A cycle-accurate, feature-complete Nintendo Entertainment System (NES / Famicom) emulator written entirely from scratch in Rust.
+[![Rust](https://img.shields.io/badge/rust-stable-brightgreen.svg)](https://www.rust-lang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://img.shields.io/badge/tests-19%20passed%20(100%25)-success.svg)](#testing--verification)
+[![Cycle Accurate](https://img.shields.io/badge/CPU-cycle--accurate%20nestest%20match-blue.svg)](#cpu-ricoh-2a03--mos-6502)
+[![Speed](https://img.shields.io/badge/benchmark->750%20FPS%20headless-orange.svg)](#performance--benchmarking)
 
-## Features
-
-- **CPU (Ricoh 2A03 / MOS 6502)**:
-  - Complete implementation of all 56 official 6502 instructions across all 13 addressing modes.
-  - Comprehensive support for unofficial/undocumented opcodes (`LAX`, `SAX`, `DCP`, `ISC`, `SLO`, `RLA`, `SRE`, `RRA`, `ALR`, `ARR`, `AXS`, multi-byte `NOP`s, etc.).
-  - Hardware bug emulation (e.g. indirect jump `JMP ($xxFF)` page-wrap anomaly).
-  - Accurate cycle accounting including page-boundary crossings and branch penalties.
-  - Passes 100% of the gold-standard **`nestest`** test suite (8,991 CPU states matched cycle-by-cycle against the reference log) and **Blargg's instruction tests**.
-  - Interrupts: `RESET`, `NMI` (VBlank), and `IRQ` (APU frame counter, DMC, and MMC3 scanline IRQ).
-
-- **PPU (Ricoh 2C02)**:
-  - 256x240 display resolution at ~60.0988 FPS.
-  - Full Loopy register scrolling model (`v`, `t`, `x`, `w`) with coarse and fine scroll manipulation.
-  - Scanline-based background rendering with nametable mirroring (Vertical, Horizontal, Single Screen Lower/Upper, Four-Screen).
-  - 8x8 and 8x16 sprite rendering with priority multiplexing, horizontal/vertical flipping, and sprite overflow detection.
-  - Precise Sprite 0 hit detection.
-  - Authentic 64-color NTSC system palette.
-
-- **APU (Audio Processing Unit)**:
-  - **Pulse 1 & Pulse 2**: Duty cycle generators (12.5%, 25%, 50%, 75%), volume envelope, sweep units (with 1's and 2's complement negation), and length counters.
-  - **Triangle**: 32-step sequence generator, linear counter, length counter, and high-frequency click prevention.
-  - **Noise**: 15-bit LFSR with 15-bit standard and 6-bit looped periodic modes, envelope, and length counter.
-  - **DMC (Delta Modulation Channel)**: Direct memory DMA sample fetching, 7-bit DAC, frequency lookup table, and sample end IRQ.
-  - **Mixer**: Non-linear synthesis formula and first-order low-pass and high-pass audio filters.
-  - Real-time 44.1 kHz audio streaming via SDL2 audio callback.
-
-- **Cartridge & Mappers**:
-  - iNES (.nes) format parser with battery-backed PRG RAM support.
-  - **Mapper 0 (NROM)**: *Super Mario Bros.*, *Donkey Kong*, *Pac-Man*, etc.
-  - **Mapper 1 (MMC1)**: *The Legend of Zelda*, *Metroid*, *Mega Man 2*, *Kid Icarus*, etc.
-  - **Mapper 2 (UxROM)**: *Castlevania*, *Contra*, *Mega Man*, *DuckTales*, etc.
-  - **Mapper 3 (CNROM)**: *Adventure Island*, *Solomon's Key*, etc.
-  - **Mapper 4 (MMC3)**: *Super Mario Bros. 3*, *Mega Man 3-6*, *Kirby's Adventure*, etc. with scanline IRQ counter.
-  - **Mapper 7 (AxROM)**: *Battletoads*, *Marble Madness*, etc.
-
-- **Frontend & Controls**:
-  - SDL2 hardware-accelerated rendering with configurable window scaling (1x–8x) and fullscreen mode.
-  - Smooth 60 FPS frame pacing.
-  - Headless benchmark mode (>1,000 FPS on modern CPUs).
+A high-performance, cycle-accurate Nintendo Entertainment System (NES / Famicom) emulator written completely from scratch in pure **Rust**, featuring pixel-perfect PPU rendering, a high-fidelity 5-channel APU with real-time audio diagnostics and WAV recording, comprehensive mapper support (NROM, MMC1, UxROM, CNROM, MMC3, AxROM), and hardware-accelerated SDL2 frontend.
 
 ---
 
-## Controls & Hotkeys
+## 📸 Screenshot Showcase
+
+Captured directly from the emulator's PPU scanline pipeline:
+
+| **Super Mario Bros.** (World 1-1 Gameplay) | **The Legend of Zelda** (Title Screen) |
+| :---: | :---: |
+| <img src="images/mario_gameplay.png" width="370" alt="Super Mario Bros." /> | <img src="images/zelda_title.png" width="370" alt="The Legend of Zelda" /> |
+| *Mapper 0 (NROM) • Fine scrolling & sprite multiplexing* | *Mapper 1 (MMC1) • Scanline split & Sprite 0 timing* |
+
+| **Mega Man 2** (Title Screen) | **Contra** (Title Screen) |
+| :---: | :---: |
+| <img src="images/megaman2_title.png" width="370" alt="Mega Man 2" /> | <img src="images/contra_title.png" width="370" alt="Contra" /> |
+| *Mapper 1 (MMC1) • Full 8x16 sprite rendering* | *Mapper 2 (UxROM) • Dynamic PRG bank switching* |
+
+| **Castlevania** (Title Screen) | **Super Mario Bros. 3** (Title Screen) |
+| :---: | :---: |
+| <img src="images/castlevania_title.png" width="370" alt="Castlevania" /> | <img src="images/smb3_title.png" width="370" alt="Super Mario Bros. 3" /> |
+| *Mapper 2 (UxROM) • Background tile rendering* | *Mapper 4 (MMC3) • Scanline IRQ split screen* |
+
+| **Zelda II - The Adventure of Link** | **Super Mario Bros.** (Title Screen) |
+| :---: | :---: |
+| <img src="images/zelda2_title.png" width="370" alt="Zelda II" /> | <img src="images/mario_title.png" width="370" alt="Super Mario Bros. Title" /> |
+| *Mapper 1 (MMC1) • Battery-backed SRAM saving* | *Mapper 0 (NROM) • Classic 64-color NTSC palette* |
+
+---
+
+## ⚡ Key Highlights & Architecture
+
+### 🧠 CPU (Ricoh 2A03 / MOS 6502)
+- **100% Instruction Coverage**: Implements all 56 official 6502 instructions across all 13 addressing modes.
+- **Unofficial Opcodes**: Full support for undocumented opcodes (`LAX`, `SAX`, `DCP`, `ISC`, `SLO`, `RLA`, `SRE`, `RRA`, `ALR`, `ARR`, `AXS`, multi-byte `NOP`s, etc.).
+- **Hardware-Accurate Quirks**: Faithful replication of hardware edge cases, including indirect jump `JMP ($xxFF)` page-wrap anomaly and cycle-5 RMW dummy memory writes (critical for MMC1 consecutive-cycle write filtering in *The Legend of Zelda*).
+- **Golden Master Verification**: Passes **100% of the `nestest` gold standard** (all 8,991 CPU instructions and cycles matched cycle-by-cycle against reference logs) and **Blargg's official instruction tests**.
+- **Interrupt Handling**: Exact cycle timing for `RESET`, `NMI` (VBlank), and `IRQ` (APU frame counter, DMC DMA, and MMC3 scanline counter).
+
+### 🎨 PPU (Ricoh 2C02 Picture Processing Unit)
+- **Resolution & Timing**: Native 256×240 display resolution at ~60.0988 FPS (29,780.5 CPU cycles per frame).
+- **Loopy Scrolling**: Full register architecture (`v`, `t`, `x`, `w`) with mid-scanline coarse and fine scroll manipulation.
+- **Nametable Mirroring**: Dynamic hardware mirroring switching (Horizontal, Vertical, Single Screen Lower/Upper, and Four-Screen).
+- **Sprite Multiplexing**: Supports both 8×8 and 8×16 sprite modes with priority sorting, horizontal and vertical flipping, and sprite overflow flag.
+- **Precise Sprite 0 Hit**: Cycle-accurate evaluation for split-screen HUD status bars (e.g. *Super Mario Bros.* and *The Legend of Zelda* overworld).
+- **NTSC Palette**: Authentic, vibrant 64-color composite video palette.
+
+### 🔊 APU (Audio Processing Unit & Diagnostics)
+- **5 Complete Audio Channels**:
+  - **Pulse 1 & Pulse 2**: 4 duty cycles (12.5%, 25%, 50%, 75%), volume envelope generator, and sweep units (Pulse 1 with 1's complement negation, Pulse 2 with 2's complement negation, with continuous muting evaluation).
+  - **Triangle**: 32-step pseudo-triangle wave, linear counter, length counter, and pop-free ultrasonic frequency handling.
+  - **Noise**: 15-bit Linear Feedback Shift Register (LFSR) with 32,767-step pseudo-random and 93-step periodic looped modes, clocked at true CPU cycle periods.
+  - **DMC (Delta Modulation Channel)**: Automatic 1-bit delta DMA sample playback, 7-bit DAC, frequency lookup table, and sample end IRQ.
+- **Hardware Filters & Mixing**: Non-linear DAC synthesis formula, first-order low-pass filter (14 kHz), and dual first-order high-pass filters (90 Hz & 440 Hz) for DC offset removal.
+- **Frame Sequencer**: Hardware 4-step (240 Hz / 120 Hz / 60 Hz IRQ) and 5-step sequences clocked accurately on APU cycles.
+- **Audio-Driven Frame Pacing & DRC**: Dynamic Rate Control smoothly synchronizes emulation speed to the physical soundcard DAC, preventing buffer underruns.
+- **Audio Diagnostics & `.wav` Export**:
+  - Rolling 2-minute audio buffer recorded in real-time.
+  - **F4 Hotkey**: Instantly dumps recent audio to a standard 16-bit 44.1 kHz PCM WAV file in `./audio_dumps/`.
+  - **Auto-save on Exit**: Automatically writes the audio session to a `.wav` file upon closing the emulator for easy analysis.
+
+### 💾 Cartridge & Mapper Support
+Full iNES format parsing with battery-backed PRG RAM persistence:
+| Mapper | Chip | Popular Supported Games |
+|:---:|:---:|:---|
+| **0** | **NROM** | *Super Mario Bros.*, *Donkey Kong*, *Pac-Man*, *Excitebike*, *Kung Fu* |
+| **1** | **MMC1** | *The Legend of Zelda*, *Metroid*, *Mega Man 2*, *Zelda II*, *Kid Icarus* |
+| **2** | **UxROM** | *Castlevania*, *Contra*, *Mega Man*, *DuckTales*, *Metal Gear* |
+| **3** | **CNROM** | *Adventure Island*, *Solomon's Key*, *Gradius*, *Cyber Stadium Series* |
+| **4** | **MMC3** | *Super Mario Bros. 3*, *Mega Man 3–6*, *Kirby's Adventure*, *Super C* |
+| **7** | **AxROM** | *Battletoads*, *Marble Madness*, *Double Dragon II* |
+
+---
+
+## 🎮 Controls & Keybindings
 
 ### Player 1 Gamepad
-| Action | Primary Key | Secondary Key |
-|---|---|---|
-| **D-Pad Up** | Up Arrow | `W` |
-| **D-Pad Down** | Down Arrow | `S` |
-| **D-Pad Left** | Left Arrow | `A` |
-| **D-Pad Right** | Right Arrow | `D` |
+| Button | Primary Keyboard Key | Secondary Key |
+|:---|:---|:---|
+| **D-Pad Up** | Up Arrow (`↑`) | `W` |
+| **D-Pad Down** | Down Arrow (`↓`) | `S` |
+| **D-Pad Left** | Left Arrow (`←`) | `A` |
+| **D-Pad Right** | Right Arrow (`→`) | `D` |
 | **A Button** | `Z` | `K` |
 | **B Button** | `X` | `J` |
-| **Select** | Space | Right Shift |
-| **Start** | Enter | Return |
+| **Select** | `Space` | Right Shift |
+| **Start** | `Enter` | Return |
 
-### Hotkeys
-| Key | Action |
-|---|---|
-| `F12`, `F2` | Capture Screenshot (saved to `./screenshots/` in lossless 24-bit BMP) |
-| `F3` | Toggle real-time Audio Diagnostics (buffer health, underruns, pop detection) |
-| `P` | Pause / Resume emulation |
-| `R` | Reset console |
-| `Tab` | Fast Forward (hold for uncapped speed) |
-| `M` | Mute / Unmute audio |
-| `F11` | Toggle Fullscreen |
-| `Esc` | Quit emulator |
+### Emulator Hotkeys
+| Key | Function |
+|:---|:---|
+| **`F12` / `F2`** | **Capture Screenshot** (lossless 24-bit BMP saved to `./screenshots/`) |
+| **`F4`** | **Save Audio Dump** (lossless 16-bit 44.1 kHz `.wav` saved to `./audio_dumps/`) |
+| **`F3`** | **Toggle Audio Diagnostics** (real-time buffer health, underrun & pop monitor) |
+| **`P`** | **Pause / Resume** emulation |
+| **`R`** | **Reset** console |
+| **`Tab`** | **Fast-Forward** (hold for uncapped speed, up to >750 FPS) |
+| **`M`** | **Mute / Unmute** audio |
+| **`F11`** | **Toggle Fullscreen** mode |
+| **`Esc`** | **Quit Emulator** (auto-saves audio dump for review) |
 
 ---
 
-## Building and Running
+## 🚀 Getting Started
 
 ### Prerequisites
-- **Rust**: Latest stable Rust toolchain (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
-- **SDL2**:
-  - **macOS**: `brew install sdl2`
-  - **Ubuntu / Debian**: `sudo apt install libsdl2-dev`
-  - **Fedora**: `sudo dnf install SDL2-devel`
-  - **Arch Linux**: `sudo pacman -S sdl2`
+
+- **Rust**: Latest stable toolchain ([Install via rustup](https://rustup.rs/)):
+  ```bash
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  ```
+- **SDL2 Development Libraries**:
+  - **macOS** (Homebrew):
+    ```bash
+    brew install sdl2
+    ```
+  - **Ubuntu / Debian**:
+    ```bash
+    sudo apt update && sudo apt install libsdl2-dev
+    ```
+  - **Fedora / RHEL**:
+    ```bash
+    sudo dnf install SDL2-devel
+    ```
+  - **Arch Linux**:
+    ```bash
+    sudo pacman -S sdl2
+    ```
 
 ### Build
+
 ```bash
 cargo build --release
 ```
-The optimized executable will be located at `target/release/nes`.
+The optimized standalone binary will be compiled to `target/release/nes`.
 
-### Run a ROM
+---
+
+## 🕹️ Running Games
+
+Run any standard `.nes` ROM file directly by providing the path:
+
 ```bash
-# Launch a game at default 3x scale
+# Launch a game at default 3x window scaling (768×720)
 ./target/release/nes path/to/game.nes
 
-# Launch with 4x scale
+# Launch at 4x window scaling (1024×960)
 ./target/release/nes path/to/game.nes --scale 4
 
 # Launch with real-time audio diagnostics enabled
 ./target/release/nes path/to/game.nes --debug-audio
 
-# Run in headless benchmark mode for 1000 frames
+# Run in headless benchmark mode for 1,000 frames
 ./target/release/nes path/to/game.nes --headless 1000
 
-# Or launch using the ROM_PATH / NES_ROM environment variable
-export ROM_PATH=path/to/game.nes
-./target/release/nes
+# View all CLI options and keybindings
+./target/release/nes --help
 ```
+
+### CLI Options
+
+| Flag | Argument | Description | Example |
+|:---|:---|:---|:---|
+| `<rom_path>` | File path | Path to any valid iNES ROM file | `./target/release/nes roms/mario.nes` |
+| `--scale` | `1`–`8` | Window scale multiplier (default: `3` = 768×720) | `--scale 4` (1024×960 window) |
+| `--debug-audio` | *None* | Enable real-time audio buffer and underrun diagnostics | `--debug-audio` |
+| `--headless` | `<frames>` | Run headlessly for $N$ frames without a window (benchmarking/testing) | `--headless 1000` |
+| `--help`, `-h` | *None* | Display usage instructions and control bindings | `--help` |
+
 
 ---
 
-## Running Tests
+## 🧪 Testing & Verification
 
-The test suite includes full CPU golden-master verification against `nestest.log`, Blargg's CPU instruction tests, PPU mirroring and register tests, APU audio channel tests, and mapper switching tests:
+The emulator includes an extensive automated test suite covering CPU instruction execution, PPU rendering, APU audio synthesis, and mapper banking:
 
 ```bash
+# Run all unit and integration tests
 cargo test
+
+# Run tests with diagnostic output
+cargo test -- --nocapture
+
+# Run nestest golden-log verification
+cargo test --test nestest
+
+# Run Blargg's CPU instruction test
+cargo test --test blargg_tests
+
+# Run Zelda PPU Sprite 0 and split-scroll test
+cargo test --test zelda_sprite0
+
+# Run Zelda Audio waveform diagnostic test (generates WAV dumps)
+cargo test --test zelda_audio_test
+```
+
+### Verification Highlights
+- **`nestest.nes`**: Matches all 8,991 instructions and cycles against `nestest.log` golden master.
+- **Blargg's `official_only.nes`**: All 56 official 6502 instructions pass.
+- **Zero Warnings**: Strictly enforced clean `cargo clippy --all-targets` and `cargo fmt --check`.
+
+---
+
+## 🏎️ Performance & Benchmarking
+
+Benchmarked on Apple Silicon (M-series) in release mode:
+- **Headless Mode**: **748.9 FPS** (~12.5× real-time speed).
+- **Interactive Mode**: Rock-solid **60.0988 FPS** with low-latency audio playback and sub-frame input response.
+
+---
+
+## 📁 Project Structure
+
+```text
+NES-Emulator/
+├── Cargo.toml                    # Rust crate configuration & dependencies
+├── build.rs                      # Native SDL2 library linking
+├── README.md                     # Documentation and screenshots
+├── images/                       # High-res screenshot showcase assets
+├── screenshots/                  # In-game captures (F12/F2)
+├── audio_dumps/                  # In-game WAV audio recordings (F4 / exit)
+├── src/
+│   ├── lib.rs                    # Public API exports
+│   ├── main.rs                   # CLI arguments & entrypoint
+│   ├── apu/                      # Audio Processing Unit
+│   │   ├── dmc.rs                # Delta Modulation Channel (DMC)
+│   │   ├── envelope.rs           # Volume envelope generator
+│   │   ├── filter.rs             # 14 kHz low-pass & 90/440 Hz high-pass filters
+│   │   ├── length_counter.rs     # Note length counters
+│   │   ├── noise.rs              # 15-bit LFSR pseudo-random noise
+│   │   ├── pulse.rs              # Pulse channels with frequency sweep
+│   │   └── triangle.rs           # 32-step triangle wave channel
+│   ├── audio/                    # SDL2 audio callback & diagnostics
+│   │   ├── mod.rs                # Dynamic rate control & audio streaming
+│   │   └── diagnostics.rs        # WAV exporter, buffer monitor & pop detection
+│   ├── bus/                      # 16-bit CPU system interconnect bus
+│   ├── cartridge/                # Cartridge header decoder & mappers
+│   │   ├── header.rs             # iNES header parser
+│   │   └── mapper/               # Mappers 0, 1, 2, 3, 4, 7
+│   ├── controller/               # Standard NES joypad shift registers
+│   ├── cpu/                      # Ricoh 2A03 / MOS 6502 CPU core
+│   │   ├── addressing.rs         # 13 addressing modes
+│   │   ├── opcodes.rs            # Official & unofficial opcodes
+│   │   └── registers.rs          # Status flags and registers
+│   ├── nes/                      # Console master coordination & clock stepping
+│   ├── ppu/                      # Ricoh 2C02 Picture Processing Unit
+│   │   ├── palette.rs            # 64-color authentic NTSC palette
+│   │   └── registers.rs          # Loopy scrolling & status registers
+│   └── ui/                       # SDL2 window, event loop & input handling
+│       └── screenshot.rs         # Lossless 24-bit BMP screenshot exporter
+└── tests/                        # Comprehensive test suite
+    ├── apu_tests.rs              # Audio channel unit tests
+    ├── blargg_tests.rs           # Blargg CPU instruction tests
+    ├── capture_readme_screenshots.rs # Automated screenshot capture pipeline
+    ├── mapper_tests.rs           # Mappers 0, 1, 2, 4 IRQ tests
+    ├── nestest.rs                # Golden master nestest cycle verification
+    ├── ppu_tests.rs              # PPU scrolling & VRAM mirroring tests
+    ├── screenshot_tests.rs       # BMP export format regression test
+    ├── zelda_audio_test.rs       # Zelda audio waveform & pop analysis
+    ├── zelda_debug.rs            # Zelda menu navigation & scrolling test
+    └── zelda_sprite0.rs          # Zelda overworld Sprite 0 split-timing test
 ```
 
 ---
 
-## Project Structure
+## 📜 License
 
-```
-├── build.rs                  # Native library linking configuration
-├── Cargo.toml                # Project configuration & dependencies
-├── src/
-│   ├── lib.rs                # Library entrypoint & module exports
-│   ├── main.rs               # Executable entrypoint & CLI argument handling
-│   ├── apu/                  # Audio Processing Unit
-│   │   ├── dmc.rs            # Delta Modulation Channel (DMC)
-│   │   ├── envelope.rs       # Volume envelope generator
-│   │   ├── filter.rs         # Low-pass and high-pass audio filters
-│   │   ├── length_counter.rs # Note length counter
-│   │   ├── noise.rs          # Noise channel with LFSR
-│   │   ├── pulse.rs          # Pulse channels with frequency sweep
-│   │   └── triangle.rs       # Triangle channel with linear counter
-│   ├── bus/                  # System interconnect bus & memory mapping
-│   ├── cartridge/            # ROM parser & Mappers
-│   │   ├── header.rs         # iNES header decoder
-│   │   └── mapper/           # Mappers 0, 1, 2, 3, 4, 7
-│   ├── controller/           # NES joypad shift registers & strobe logic
-│   ├── cpu/                  # Ricoh 2A03 / MOS 6502 core
-│   │   ├── addressing.rs     # 13 addressing modes & page crossing logic
-│   │   ├── opcodes.rs        # Complete 256 opcode table
-│   │   └── registers.rs      # Status flags and registers
-│   ├── nes/                  # Master console coordination & clock stepping
-│   ├── ppu/                  # Ricoh 2C02 Picture Processing Unit
-│   │   ├── palette.rs        # Standard NES 64-color palette
-│   │   └── registers.rs      # PPU status and control flags
-│   └── ui/                   # SDL2 window, audio device, and event loop
-└── tests/                    # Integration & validation tests
-    ├── nestest.rs            # Automated nestest golden master test
-    ├── blargg_tests.rs       # Blargg instruction test
-    ├── ppu_tests.rs          # PPU VRAM mirroring and register tests
-    ├── apu_tests.rs          # APU channel tests
-    └── mapper_tests.rs       # Mapper banking & IRQ tests
-```
+This project is licensed under the [MIT License](LICENSE).
