@@ -6,8 +6,12 @@ use nes::cpu::{Cpu, Memory};
 fn test_blargg_official_only() {
     let rom_path = std::env::var("BLARGG_ROM")
         .unwrap_or_else(|_| "tests/fixtures/official_only.nes".to_string());
-    let rom_bytes = std::fs::read(&rom_path)
-        .unwrap_or_else(|e| panic!("Failed to read official_only fixture from {}: {}", rom_path, e));
+    let rom_bytes = std::fs::read(&rom_path).unwrap_or_else(|e| {
+        panic!(
+            "Failed to read official_only fixture from {}: {}",
+            rom_path, e
+        )
+    });
     let cartridge =
         Cartridge::from_bytes(&rom_bytes).expect("Failed to parse official_only cartridge");
 

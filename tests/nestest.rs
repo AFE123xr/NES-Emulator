@@ -6,10 +6,10 @@ use std::io::{BufRead, BufReader};
 
 #[test]
 fn test_nestest_execution() {
-    let rom_path = std::env::var("NESTEST_ROM")
-        .unwrap_or_else(|_| "tests/fixtures/nestest.nes".to_string());
-    let rom_bytes =
-        std::fs::read(&rom_path).unwrap_or_else(|e| panic!("Failed to read nestest fixture from {}: {}", rom_path, e));
+    let rom_path =
+        std::env::var("NESTEST_ROM").unwrap_or_else(|_| "tests/fixtures/nestest.nes".to_string());
+    let rom_bytes = std::fs::read(&rom_path)
+        .unwrap_or_else(|e| panic!("Failed to read nestest fixture from {}: {}", rom_path, e));
     let cartridge = Cartridge::from_bytes(&rom_bytes).expect("Failed to parse nestest cartridge");
 
     let mut bus = Bus::new(cartridge);
