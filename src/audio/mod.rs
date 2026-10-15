@@ -5,12 +5,33 @@ use sdl2::audio::{AudioCallback, AudioDevice, AudioSpecDesired};
 use sdl2::AudioSubsystem;
 use std::sync::{Arc, Mutex};
 
+/// Buffer level (in samples) the rate controller steers towards (~56 ms).
+const TARGET_BUFFER: f32 = 2500.0;
+/// Maximum playback-rate deviation used to steer the buffer level (+/-0.5%,
+/// about 8.6 cents — imperceptible, unlike dropping/duplicating samples).
+const MAX_RATE_ADJUST: f64 = 0.005;
+
 pub struct NesAudioCallback {
     pub sample_buffer: Arc<Mutex<Vec<f32>>>,
     pub muted: Arc<Mutex<bool>>,
     pub diagnostics: Arc<AudioDiagnostics>,
     last_sample: f32,
     prebuffered: bool,
+    /// Fractional read position between `buf[0]` and `buf[1]`.
+    frac: f64,
+    /// Sample immediately preceding `buf[0]` (for cubic interpolation).
+    prev: f32,
+    /// Smoothed buffer level used by the rate controller.
+    smoothed_level: f32,
+}
+
+/// 4-point, 3rd-order Hermite interpolation between `x0` and `x1`.
+#[inline]
+fn hermite(xm1: f32, x0: f32, x1: f32, x2: f32, t: f32) -> f32 {
+    let c1 = 0.5 * (x1 - xm1);
+    let c2 = xm1 - 2.5 * x0 + 2.0 * x1 - 0.5 * x2;
+    let c3 = 0.5 * (x2 - xm1) + 1.5 * (x0 - x1);
+    ((c3 * t + c2) * t + c1) * t + x0
 }
 
 impl AudioCallback for NesAudioCallback {
@@ -25,11 +46,14 @@ impl AudioCallback for NesAudioCallback {
 
         // Pre-buffering: wait until buffer has ~2500 samples (~56ms) before starting audio
         if !self.prebuffered {
-            if initial_buf_len >= 2500 {
+            if initial_buf_len >= TARGET_BUFFER as usize {
                 self.prebuffered = true;
+                self.smoothed_level = initial_buf_len as f32;
+                self.frac = 0.0;
             } else {
                 for item in out.iter_mut() {
-                    *item = 0.0;
+                    self.last_sample *= 0.92;
+                    *item = self.last_sample;
                 }
                 self.diagnostics.record_samples(out);
                 return;
@@ -46,26 +70,19 @@ impl AudioCallback for NesAudioCallback {
             return;
         }
 
-        // Dynamic Rate Control (DRC):
-        // Target buffer: ~2500 samples (~56ms)
-        // If buffer < 1800: duplicate 1 sample every 32 samples (~3% stretch)
-        // If buffer > 3500: drop 1 sample every 32 samples (~3% compress)
-        let stretch = initial_buf_len < 1800;
-        let compress = initial_buf_len > 3500;
+        // Smooth rate control: nudge the playback ratio proportionally to how
+        // far the (smoothed) buffer level is from the target, then resample
+        // with cubic interpolation so there are no discontinuities.
+        self.smoothed_level += 0.1 * (initial_buf_len as f32 - self.smoothed_level);
+        let error = ((self.smoothed_level - TARGET_BUFFER) / TARGET_BUFFER) as f64;
+        let ratio = 1.0 + (error * 0.01).clamp(-MAX_RATE_ADJUST, MAX_RATE_ADJUST);
 
-        let mut read_idx = 0;
+        let mut idx = 0usize;
         let mut samples_written = 0;
-        let mut sample_counter = 0;
-
-        while samples_written < out.len() && read_idx < buf.len() {
-            let sample = buf[read_idx];
-            read_idx += 1;
-            sample_counter += 1;
-
-            if compress && sample_counter % 32 == 0 && read_idx < buf.len() {
-                // Drop next sample to compress
-                read_idx += 1;
-            }
+        // Need buf[idx + 2] for the interpolator's look-ahead.
+        while samples_written < out.len() && idx + 2 < buf.len() {
+            let xm1 = if idx == 0 { self.prev } else { buf[idx - 1] };
+            let sample = hermite(xm1, buf[idx], buf[idx + 1], buf[idx + 2], self.frac as f32);
 
             // Check for discontinuity pops (> 0.35 jump)
             let delta = (sample - self.last_sample).abs();
@@ -78,14 +95,17 @@ impl AudioCallback for NesAudioCallback {
             self.last_sample = sample;
             samples_written += 1;
 
-            if stretch && sample_counter % 32 == 0 && samples_written < out.len() {
-                // Duplicate current sample to stretch
-                out[samples_written] = sample;
-                samples_written += 1;
-            }
+            self.frac += ratio;
+            let whole = self.frac.floor();
+            idx += whole as usize;
+            self.frac -= whole;
         }
 
-        buf.drain(..read_idx);
+        let consumed = idx.min(buf.len());
+        if consumed > 0 {
+            self.prev = buf[consumed - 1];
+        }
+        buf.drain(..consumed);
 
         // Handle starvation / buffer underrun gracefully
         if samples_written < out.len() {
@@ -97,6 +117,8 @@ impl AudioCallback for NesAudioCallback {
                 self.last_sample *= 0.92;
                 *item = self.last_sample;
             }
+            // Re-prime the buffer before resuming so playback doesn't stutter.
+            self.prebuffered = false;
         }
 
         // Record audio samples for WAV export and diagnostics
@@ -133,6 +155,9 @@ impl AudioPlayer {
             diagnostics: diag_clone,
             last_sample: 0.0,
             prebuffered: false,
+            frac: 0.0,
+            prev: 0.0,
+            smoothed_level: TARGET_BUFFER,
         });
 
         match device {
@@ -168,5 +193,60 @@ impl AudioPlayer {
 
     pub fn save_wav(&self, rom_title: &str) -> Result<String, String> {
         self.diagnostics.save_wav(rom_title)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_callback(buf: Arc<Mutex<Vec<f32>>>) -> NesAudioCallback {
+        NesAudioCallback {
+            sample_buffer: buf,
+            muted: Arc::new(Mutex::new(false)),
+            diagnostics: Arc::new(AudioDiagnostics::new(false)),
+            last_sample: 0.0,
+            prebuffered: false,
+            frac: 0.0,
+            prev: 0.0,
+            smoothed_level: TARGET_BUFFER,
+        }
+    }
+
+    /// A smooth sine fed through the rate-controlled resampler (with the
+    /// buffer deliberately above target, forcing rate adjustment) must come
+    /// out without any sample-to-sample discontinuities.
+    #[test]
+    fn rate_control_is_click_free() {
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let mut cb = make_callback(Arc::clone(&buf));
+        let step = 2.0 * std::f32::consts::PI * 1000.0 / 44_100.0;
+        let mut phase = 0.0f32;
+        let mut out = vec![0.0f32; 512];
+        let mut max_delta = 0.0f32;
+        let mut prev: Option<f32> = None;
+
+        for i in 0..400 {
+            // Produce slightly more than consumed so the buffer sits high.
+            let produce = if i == 0 { 4000 } else { 515 };
+            {
+                let mut b = buf.lock().unwrap();
+                for _ in 0..produce {
+                    b.push(0.5 * phase.sin());
+                    phase += step;
+                }
+            }
+            cb.callback(&mut out);
+            for &s in &out {
+                if let Some(p) = prev {
+                    max_delta = max_delta.max((s - p).abs());
+                }
+                prev = Some(s);
+            }
+        }
+        // Max slope of 0.5*sin at 1 kHz is ~0.071 per sample.
+        assert!(max_delta < 0.08, "discontinuity detected: {}", max_delta);
+        // Rate control must keep the backlog bounded despite overproduction.
+        assert!(buf.lock().unwrap().len() < 6000);
     }
 }

@@ -4,17 +4,24 @@ pub mod filter;
 pub mod length_counter;
 pub mod noise;
 pub mod pulse;
+pub mod resampler;
 pub mod triangle;
 
 use dmc::Dmc;
 use filter::FirstOrderFilter;
 use noise::Noise;
 use pulse::Pulse;
+use resampler::Decimator;
 use std::sync::{Arc, Mutex};
 use triangle::Triangle;
 
 pub const CPU_CLOCK_HZ: f32 = 1_789_773.0;
 pub const SAMPLE_RATE: f32 = 44_100.0;
+
+/// Output gain applied after DC removal. The mixer's full-scale output is
+/// ~1.0, and after the high-pass filters typical game music sits well within
+/// +/-0.3, so this leaves headroom for loud DMC/noise passages.
+const OUTPUT_GAIN: f32 = 2.0;
 
 pub struct Apu {
     pub pulse1: Pulse,
@@ -31,10 +38,14 @@ pub struct Apu {
     pub frame_seq_cycle: usize,
 
     // Audio sampling
-    sample_timer: f32,
-    sample_period: f32,
+    sample_rate: f32,
+    decimator: Decimator,
     pub sample_buffer: Arc<Mutex<Vec<f32>>>,
     local_samples: Vec<f32>,
+
+    // Nonlinear mixer lookup tables (nesdev "lookup table" mixer)
+    pulse_table: [f32; 31],
+    tnd_table: [f32; 203],
 
     // Filters
     filter_hp1: FirstOrderFilter,
@@ -50,6 +61,15 @@ impl Default for Apu {
 
 impl Apu {
     pub fn new() -> Self {
+        let mut pulse_table = [0.0f32; 31];
+        for (n, v) in pulse_table.iter_mut().enumerate().skip(1) {
+            *v = 95.52 / (8128.0 / n as f32 + 100.0);
+        }
+        let mut tnd_table = [0.0f32; 203];
+        for (n, v) in tnd_table.iter_mut().enumerate().skip(1) {
+            *v = 163.67 / (24329.0 / n as f32 + 100.0);
+        }
+
         Self {
             pulse1: Pulse::new(false),
             pulse2: Pulse::new(true),
@@ -61,14 +81,34 @@ impl Apu {
             frame_irq: false,
             cycle: 0,
             frame_seq_cycle: 0,
-            sample_timer: 0.0,
-            sample_period: CPU_CLOCK_HZ / SAMPLE_RATE,
+            sample_rate: SAMPLE_RATE,
+            decimator: Decimator::new(CPU_CLOCK_HZ, SAMPLE_RATE),
             sample_buffer: Arc::new(Mutex::new(Vec::with_capacity(4096))),
             local_samples: Vec::with_capacity(128),
+            pulse_table,
+            tnd_table,
             filter_hp1: FirstOrderFilter::high_pass(SAMPLE_RATE, 90.0),
             filter_hp2: FirstOrderFilter::high_pass(SAMPLE_RATE, 440.0),
             filter_lp: FirstOrderFilter::low_pass(SAMPLE_RATE, 14_000.0),
         }
+    }
+
+    /// Output sample rate currently being generated.
+    pub fn sample_rate(&self) -> f32 {
+        self.sample_rate
+    }
+
+    /// Reconfigure the output sample rate (e.g. to match the rate the audio
+    /// device actually opened at). Resets the resampler and output filters.
+    pub fn set_sample_rate(&mut self, rate: f32) {
+        if rate <= 0.0 || (rate - self.sample_rate).abs() < f32::EPSILON {
+            return;
+        }
+        self.sample_rate = rate;
+        self.decimator = Decimator::new(CPU_CLOCK_HZ, rate);
+        self.filter_hp1 = FirstOrderFilter::high_pass(rate, 90.0);
+        self.filter_hp2 = FirstOrderFilter::high_pass(rate, 440.0);
+        self.filter_lp = FirstOrderFilter::low_pass(rate, 14_000.0);
     }
 
     pub fn reset(&mut self) {
@@ -238,11 +278,12 @@ impl Apu {
 
         self.cycle += 1;
 
-        // Audio sampling at 44.1 kHz
-        self.sample_timer += 1.0;
-        if self.sample_timer >= self.sample_period {
-            self.sample_timer -= self.sample_period;
-            let sample = self.generate_sample();
+        // Mix at the native CPU rate and let the band-limited decimator
+        // produce output-rate samples. Point-sampling here would alias the
+        // waveforms' ultrasonic harmonics back into the audible range.
+        let mixed = self.mix();
+        if let Some(sample) = self.decimator.push(mixed) {
+            let sample = self.post_process(sample);
             self.local_samples.push(sample);
 
             if self.local_samples.len() >= 32 {
@@ -270,33 +311,35 @@ impl Apu {
         }
     }
 
-    fn generate_sample(&mut self) -> f32 {
-        let p1 = self.pulse1.output() as f32;
-        let p2 = self.pulse2.output() as f32;
-        let pulse_out = if p1 + p2 > 0.0 {
-            95.88 / ((8128.0 / (p1 + p2)) + 100.0)
-        } else {
-            0.0
-        };
+    /// Nonlinear NES mixer (lookup-table approximation), evaluated per CPU cycle.
+    #[inline]
+    fn mix(&self) -> f32 {
+        let p = (self.pulse1.output() + self.pulse2.output()) as usize;
+        let tnd = 3 * self.triangle.output() as usize
+            + 2 * self.noise.output() as usize
+            + self.dmc.output() as usize;
+        self.pulse_table[p] + self.tnd_table[tnd]
+    }
 
-        let tri = self.triangle.output() as f32;
-        let noise = self.noise.output() as f32;
-        let dmc = self.dmc.output() as f32;
-        let tnd_denom = (tri / 8227.0) + (noise / 12241.0) + (dmc / 22638.0);
-        let tnd_out = if tnd_denom > 0.0 {
-            159.79 / ((1.0 / tnd_denom) + 100.0)
-        } else {
-            0.0
-        };
-
-        let raw_sample = pulse_out + tnd_out;
-
-        // Apply filters
+    /// Output-rate filtering (NES analog output stage), gain, and limiting.
+    fn post_process(&mut self, raw_sample: f32) -> f32 {
         let s = self.filter_lp.process(raw_sample);
         let s = self.filter_hp1.process(s);
         let s = self.filter_hp2.process(s);
+        soft_clip(s * OUTPUT_GAIN)
+    }
+}
 
-        // Normalize: High-pass filters already centered the audio around 0.0.
-        (s * 2.5).clamp(-1.0, 1.0)
+/// Transparent below 0.8; smoothly saturates towards 1.0 above it, avoiding
+/// the harsh distortion of a hard clamp on loud DMC/noise transients.
+#[inline]
+fn soft_clip(x: f32) -> f32 {
+    const KNEE: f32 = 0.8;
+    let a = x.abs();
+    if a <= KNEE {
+        x
+    } else {
+        let over = (a - KNEE) / (1.0 - KNEE);
+        (KNEE + (1.0 - KNEE) * over.tanh()).copysign(x)
     }
 }
