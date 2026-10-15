@@ -1,7 +1,7 @@
 pub mod screenshot;
 
 use crate::audio::AudioPlayer;
-use crate::controller::JoypadButton;
+use crate::controller::{ControlsConfig, HotkeyAction, InputAction, InputMap};
 use crate::nes::Nes;
 use crate::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
 pub use screenshot::save_screenshot;
@@ -15,6 +15,7 @@ pub struct EmulatorConfig {
     pub scale: u32,
     pub title: String,
     pub debug_audio: bool,
+    pub controls_path: Option<String>,
 }
 
 impl Default for EmulatorConfig {
@@ -23,6 +24,7 @@ impl Default for EmulatorConfig {
             scale: 3,
             title: "NES Emulator".to_string(),
             debug_audio: false,
+            controls_path: None,
         }
     }
 }
@@ -70,6 +72,14 @@ pub fn run_emulator(mut nes: Nes, config: EmulatorConfig) -> Result<(), String> 
         None
     };
 
+    // Load controls configuration
+    let (controls_config, loaded_from) =
+        ControlsConfig::load_or_default(config.controls_path.as_deref());
+    if let Some(src) = &loaded_from {
+        println!("🎮 Controls configured from: {}", src);
+    }
+    let input_map = InputMap::new(&controls_config);
+
     let mut event_pump = sdl_context
         .event_pump()
         .map_err(|e| format!("Failed to create event pump: {}", e))?;
@@ -83,17 +93,14 @@ pub fn run_emulator(mut nes: Nes, config: EmulatorConfig) -> Result<(), String> 
 
     println!("NES Emulator started!");
     println!("Controls:");
-    println!("  D-Pad:  Arrow Keys or WASD");
-    println!("  A:      Z or K");
-    println!("  B:      X or J");
-    println!("  Select: Space or Right Shift");
-    println!("  Start:  Enter");
+    println!("  Player 1: D-Pad (Arrows/WASD), A (Z/K), B (X/J), Select (Space), Start (Enter)");
+    println!("  Player 2: D-Pad (I/K/J/L), A (O), B (U), Select (Y), Start (H)");
     println!("Hotkeys:");
     println!("  P:      Pause / Resume");
     println!("  R:      Reset console");
     println!("  Tab:    Fast Forward (hold)");
     println!("  M:      Mute / Unmute Audio");
-    println!("  F3:     Toggle Audio Diagnostics (diagnose popping & buffer health)");
+    println!("  F3:     Toggle Audio Diagnostics");
     println!("  F4:     Save Audio Dump (.wav saved to ./audio_dumps/)");
     println!("  F12/F2: Take Screenshot (saved to ./screenshots/)");
     println!("  F11:    Fullscreen Toggle");
@@ -109,87 +116,90 @@ pub fn run_emulator(mut nes: Nes, config: EmulatorConfig) -> Result<(), String> 
                     keycode: Some(key),
                     repeat: false,
                     ..
-                } => match key {
-                    Keycode::Escape => break 'running,
-                    Keycode::P => paused = !paused,
-                    Keycode::R => {
-                        nes.reset();
-                        println!("Console reset.");
-                    }
-                    Keycode::Tab => fast_forward = true,
-                    Keycode::M => {
-                        if let Some(player) = &audio_player {
-                            player.toggle_mute();
-                        }
-                    }
-                    Keycode::F3 => {
-                        if let Some(player) = &audio_player {
-                            player.toggle_diagnostics();
-                        } else {
-                            println!("Audio subsystem not active.");
-                        }
-                    }
-                    Keycode::F4 => {
-                        if let Some(player) = &audio_player {
-                            match player.save_wav(&config.title) {
-                                Ok(path) => {
-                                    println!("🔊 Audio buffer saved: {}", path);
-                                    audio_notice = Some((Instant::now(), path));
-                                }
-                                Err(e) => eprintln!("Audio save error: {}", e),
+                } => {
+                    let mut handled = false;
+                    if let Some(actions) = input_map.get_actions(&key) {
+                        for &action in actions {
+                            handled = true;
+                            match action {
+                                InputAction::Player1(btn) => nes.set_button_p1(btn, true),
+                                InputAction::Player2(btn) => nes.set_button_p2(btn, true),
+                                InputAction::Hotkey(hotkey) => match hotkey {
+                                    HotkeyAction::Exit => break 'running,
+                                    HotkeyAction::Pause => paused = !paused,
+                                    HotkeyAction::Reset => {
+                                        nes.reset();
+                                        println!("Console reset.");
+                                    }
+                                    HotkeyAction::FastForward => fast_forward = true,
+                                    HotkeyAction::Mute => {
+                                        if let Some(player) = &audio_player {
+                                            player.toggle_mute();
+                                        }
+                                    }
+                                    HotkeyAction::AudioDiagnostics => {
+                                        if let Some(player) = &audio_player {
+                                            player.toggle_diagnostics();
+                                        } else {
+                                            println!("Audio subsystem not active.");
+                                        }
+                                    }
+                                    HotkeyAction::AudioDump => {
+                                        if let Some(player) = &audio_player {
+                                            match player.save_wav(&config.title) {
+                                                Ok(path) => {
+                                                    println!("🔊 Audio buffer saved: {}", path);
+                                                    audio_notice = Some((Instant::now(), path));
+                                                }
+                                                Err(e) => eprintln!("Audio save error: {}", e),
+                                            }
+                                        } else {
+                                            println!("Audio subsystem not active.");
+                                        }
+                                    }
+                                    HotkeyAction::Screenshot => {
+                                        let frame = nes.bus.ppu.frame_buffer.as_ref();
+                                        match screenshot::save_screenshot(frame, &config.title) {
+                                            Ok(path) => {
+                                                println!("📸 Screenshot captured: {}", path);
+                                                screenshot_notice = Some((Instant::now(), path));
+                                            }
+                                            Err(e) => eprintln!("Screenshot error: {}", e),
+                                        }
+                                    }
+                                    HotkeyAction::Fullscreen => {
+                                        is_fullscreen = !is_fullscreen;
+                                        let fs = if is_fullscreen {
+                                            FullscreenType::Desktop
+                                        } else {
+                                            FullscreenType::Off
+                                        };
+                                        let _ = canvas.window_mut().set_fullscreen(fs);
+                                    }
+                                },
                             }
-                        } else {
-                            println!("Audio subsystem not active.");
                         }
                     }
-                    Keycode::F12 | Keycode::F2 => {
-                        let frame = nes.bus.ppu.frame_buffer.as_ref();
-                        match screenshot::save_screenshot(frame, &config.title) {
-                            Ok(path) => {
-                                println!("📸 Screenshot captured: {}", path);
-                                screenshot_notice = Some((Instant::now(), path));
-                            }
-                            Err(e) => eprintln!("Screenshot error: {}", e),
-                        }
+                    if !handled && key == Keycode::Escape {
+                        break 'running;
                     }
-                    Keycode::F11 => {
-                        is_fullscreen = !is_fullscreen;
-                        let fs = if is_fullscreen {
-                            FullscreenType::Desktop
-                        } else {
-                            FullscreenType::Off
-                        };
-                        let _ = canvas.window_mut().set_fullscreen(fs);
-                    }
-                    // Player 1 input
-                    Keycode::Up | Keycode::W => nes.set_button_p1(JoypadButton::Up, true),
-                    Keycode::Down | Keycode::S => nes.set_button_p1(JoypadButton::Down, true),
-                    Keycode::Left | Keycode::A => nes.set_button_p1(JoypadButton::Left, true),
-                    Keycode::Right | Keycode::D => nes.set_button_p1(JoypadButton::Right, true),
-                    Keycode::Z | Keycode::K => nes.set_button_p1(JoypadButton::A, true),
-                    Keycode::X | Keycode::J => nes.set_button_p1(JoypadButton::B, true),
-                    Keycode::Space | Keycode::RShift => {
-                        nes.set_button_p1(JoypadButton::Select, true)
-                    }
-                    Keycode::Return => nes.set_button_p1(JoypadButton::Start, true),
-                    _ => {}
-                },
+                }
                 Event::KeyUp {
                     keycode: Some(key), ..
-                } => match key {
-                    Keycode::Tab => fast_forward = false,
-                    Keycode::Up | Keycode::W => nes.set_button_p1(JoypadButton::Up, false),
-                    Keycode::Down | Keycode::S => nes.set_button_p1(JoypadButton::Down, false),
-                    Keycode::Left | Keycode::A => nes.set_button_p1(JoypadButton::Left, false),
-                    Keycode::Right | Keycode::D => nes.set_button_p1(JoypadButton::Right, false),
-                    Keycode::Z | Keycode::K => nes.set_button_p1(JoypadButton::A, false),
-                    Keycode::X | Keycode::J => nes.set_button_p1(JoypadButton::B, false),
-                    Keycode::Space | Keycode::RShift => {
-                        nes.set_button_p1(JoypadButton::Select, false)
+                } => {
+                    if let Some(actions) = input_map.get_actions(&key) {
+                        for &action in actions {
+                            match action {
+                                InputAction::Player1(btn) => nes.set_button_p1(btn, false),
+                                InputAction::Player2(btn) => nes.set_button_p2(btn, false),
+                                InputAction::Hotkey(HotkeyAction::FastForward) => {
+                                    fast_forward = false
+                                }
+                                _ => {}
+                            }
+                        }
                     }
-                    Keycode::Return => nes.set_button_p1(JoypadButton::Start, false),
-                    _ => {}
-                },
+                }
                 _ => {}
             }
         }

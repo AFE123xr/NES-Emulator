@@ -1,4 +1,8 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub mod config;
+
+pub use config::{ControlsConfig, HotkeyAction, InputAction, InputMap};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum JoypadButton {
     A = 0,
     B = 1,
