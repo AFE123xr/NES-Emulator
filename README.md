@@ -66,7 +66,7 @@ Captured directly from the emulator's PPU scanline pipeline:
 - **Audio Diagnostics & `.wav` Export**:
   - Rolling 2-minute audio buffer recorded in real-time.
   - **F4 Hotkey**: Instantly dumps recent audio to a standard 16-bit 44.1 kHz PCM WAV file in `./audio_dumps/`.
-  - **Auto-save on Exit**: Automatically writes the audio session to a `.wav` file upon closing the emulator for easy analysis.
+  - **Optional Auto-save on Exit**: Pass `--save-audio-on-exit` to write the audio session to a `.wav` file upon closing the emulator for easy analysis.
 
 ### 💾 Cartridge & Mapper Support
 Full iNES format parsing with battery-backed PRG RAM persistence:
@@ -110,7 +110,7 @@ All keyboard controls and hotkeys can be fully customized via a JSON configurati
 | **`Tab`** | **Fast-Forward** (hold for uncapped speed, up to >750 FPS) |
 | **`M`** | **Mute / Unmute** audio |
 | **`F11`** | **Toggle Fullscreen** mode |
-| **`Esc`** | **Quit Emulator** (auto-saves audio dump for review) |
+| **`Esc`** | **Quit Emulator** (saves audio dump only with `--save-audio-on-exit`) |
 
 ### 🛠️ Customizing Controls with JSON
 
@@ -238,6 +238,7 @@ Run any standard `.nes` ROM file directly by providing the path:
 | `--generate-controls` | `[file]` | Generate a default controls JSON configuration file | `--generate-controls controls.json` |
 | `--scale` | `1`–`8` | Window scale multiplier (default: `3` = 768×720) | `--scale 4` (1024×960 window) |
 | `--debug-audio` | *None* | Enable real-time audio buffer and underrun diagnostics | `--debug-audio` |
+| `--save-audio-on-exit` | *None* | Save the session audio as a `.wav` to `./audio_dumps/` on exit (off by default) | `--save-audio-on-exit` |
 | `--headless` | `<frames>` | Run headlessly for $N$ frames without a window (benchmarking/testing) | `--headless 1000` |
 | `--help`, `-h` | *None* | Display usage instructions and control bindings | `--help` |
 

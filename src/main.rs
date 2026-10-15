@@ -20,6 +20,9 @@ fn print_usage() {
     println!("  --scale <factor>         Window scale factor (1, 2, 3, 4, default: 3)");
     println!("  --headless <frames>      Run in headless mode for N frames (benchmarking/testing)");
     println!("  --debug-audio            Enable real-time audio diagnostics (diagnose popping & buffer health)");
+    println!(
+        "  --save-audio-on-exit     Save the session audio as a WAV dump (./audio_dumps/) on exit"
+    );
     println!("  --controls <file>        Path to custom controls JSON file (default: ./controls.json if present)");
     println!("  --config <file>          Alias for --controls");
     println!(
@@ -50,7 +53,7 @@ fn print_usage() {
     println!("  Tab:                     Fast forward (hold)");
     println!("  M:                       Mute / Unmute audio");
     println!("  F11:                     Toggle fullscreen");
-    println!("  Esc:                     Exit emulator (auto-saves audio dump)");
+    println!("  Esc:                     Exit emulator");
 }
 
 fn main() {
@@ -66,6 +69,7 @@ fn main() {
     let mut scale: u32 = 3;
     let mut headless_frames: Option<usize> = None;
     let mut debug_audio = false;
+    let mut save_audio_on_exit = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -88,6 +92,9 @@ fn main() {
             }
             "--debug-audio" => {
                 debug_audio = true;
+            }
+            "--save-audio-on-exit" => {
+                save_audio_on_exit = true;
             }
             "--controls" | "--config" => {
                 if i + 1 < args.len() {
@@ -196,6 +203,7 @@ fn main() {
         title: format!("NES Emulator - {}", rom_title),
         debug_audio,
         controls_path,
+        save_audio_on_exit,
     };
 
     if let Err(e) = nes::run_emulator(nes, config) {

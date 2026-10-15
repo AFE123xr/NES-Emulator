@@ -16,6 +16,8 @@ pub struct EmulatorConfig {
     pub title: String,
     pub debug_audio: bool,
     pub controls_path: Option<String>,
+    /// Automatically save the session's audio as a WAV dump on exit.
+    pub save_audio_on_exit: bool,
 }
 
 impl Default for EmulatorConfig {
@@ -25,6 +27,7 @@ impl Default for EmulatorConfig {
             title: "NES Emulator".to_string(),
             debug_audio: false,
             controls_path: None,
+            save_audio_on_exit: false,
         }
     }
 }
@@ -279,7 +282,7 @@ pub fn run_emulator(mut nes: Nes, config: EmulatorConfig) -> Result<(), String> 
     }
 
     if let Some(player) = &audio_player {
-        if player.diagnostics.sample_count() >= 4410 {
+        if config.save_audio_on_exit && player.diagnostics.sample_count() >= 4410 {
             match player.save_wav(&config.title) {
                 Ok(path) => println!("🔊 Audio session saved to: {}", path),
                 Err(e) => eprintln!("Failed to save audio on exit: {}", e),
