@@ -1,4 +1,4 @@
-use nes::{Cartridge, EmulatorConfig, Nes};
+use nes::{Cartridge, ControlsConfig, EmulatorConfig, Nes};
 use std::env;
 use std::path::Path;
 use std::process;
@@ -11,31 +11,46 @@ fn print_usage() {
     println!("  nes [rom_path] [options]");
     println!();
     println!("Environment Variables:");
-    println!("  ROM_PATH, NES_ROM    Path to .nes ROM file (used if rom_path argument is omitted)");
+    println!(
+        "  ROM_PATH, NES_ROM        Path to .nes ROM file (used if rom_path argument is omitted)"
+    );
+    println!("  NES_CONTROLS             Path to custom controls JSON file");
     println!();
     println!("Options:");
-    println!("  --scale <factor>     Window scale factor (1, 2, 3, 4, default: 3)");
-    println!("  --headless <frames>  Run in headless mode for N frames (benchmarking/testing)");
-    println!("  --debug-audio        Enable real-time audio diagnostics (diagnose popping & buffer health)");
-    println!("  --help, -h           Show this help message");
+    println!("  --scale <factor>         Window scale factor (1, 2, 3, 4, default: 3)");
+    println!("  --headless <frames>      Run in headless mode for N frames (benchmarking/testing)");
+    println!("  --debug-audio            Enable real-time audio diagnostics (diagnose popping & buffer health)");
+    println!("  --controls <file>        Path to custom controls JSON file (default: ./controls.json if present)");
+    println!("  --config <file>          Alias for --controls");
+    println!(
+        "  --generate-controls [f]  Generate default controls JSON file (default: controls.json)"
+    );
+    println!("  --help, -h               Show this help message");
     println!();
-    println!("Controls:");
-    println!("  D-Pad:               Arrow keys or WASD");
-    println!("  A button:            Z or K");
-    println!("  B button:            X or J");
-    println!("  Select:              Space or Right Shift");
-    println!("  Start:               Enter");
+    println!("Default Controls (configurable via controls.json):");
+    println!("  Player 1:");
+    println!("    D-Pad:                 Arrow keys or WASD");
+    println!("    A button:              Z or K");
+    println!("    B button:              X or J");
+    println!("    Select:                Space or Right Shift");
+    println!("    Start:                 Enter");
+    println!("  Player 2:");
+    println!("    D-Pad:                 I, K, J, L");
+    println!("    A button:              O");
+    println!("    B button:              U");
+    println!("    Select:                Y");
+    println!("    Start:                 H");
     println!();
     println!("Hotkeys:");
-    println!("  F12, F2:             Capture Screenshot (saved to ./screenshots/)");
-    println!("  F3:                  Toggle real-time Audio Diagnostics");
-    println!("  F4:                  Save Audio Dump (.wav saved to ./audio_dumps/)");
-    println!("  P:                   Pause / Resume");
-    println!("  R:                   Reset console");
-    println!("  Tab:                 Fast forward (hold)");
-    println!("  M:                   Mute / Unmute audio");
-    println!("  F11:                 Toggle fullscreen");
-    println!("  Esc:                 Exit emulator (auto-saves audio dump)");
+    println!("  F12, F2:                 Capture Screenshot (saved to ./screenshots/)");
+    println!("  F3:                      Toggle real-time Audio Diagnostics");
+    println!("  F4:                      Save Audio Dump (.wav saved to ./audio_dumps/)");
+    println!("  P:                       Pause / Resume");
+    println!("  R:                       Reset console");
+    println!("  Tab:                     Fast forward (hold)");
+    println!("  M:                       Mute / Unmute audio");
+    println!("  F11:                     Toggle fullscreen");
+    println!("  Esc:                     Exit emulator (auto-saves audio dump)");
 }
 
 fn main() {
@@ -47,6 +62,7 @@ fn main() {
     }
 
     let mut rom_path_opt: Option<String> = None;
+    let mut controls_path_opt: Option<String> = None;
     let mut scale: u32 = 3;
     let mut headless_frames: Option<usize> = None;
     let mut debug_audio = false;
@@ -73,6 +89,35 @@ fn main() {
             "--debug-audio" => {
                 debug_audio = true;
             }
+            "--controls" | "--config" => {
+                if i + 1 < args.len() {
+                    controls_path_opt = Some(args[i + 1].clone());
+                    i += 1;
+                } else {
+                    eprintln!("Error: Missing file path after {}", args[i]);
+                    print_usage();
+                    process::exit(1);
+                }
+            }
+            "--generate-controls" => {
+                let target = if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    i += 1;
+                    args[i].clone()
+                } else {
+                    "controls.json".to_string()
+                };
+                let default_config = ControlsConfig::default();
+                match default_config.save_to_file(&target) {
+                    Ok(()) => {
+                        println!("Created default controls configuration file at: {}", target);
+                        return;
+                    }
+                    Err(e) => {
+                        eprintln!("Error generating controls configuration: {}", e);
+                        process::exit(1);
+                    }
+                }
+            }
             other => {
                 if other.starts_with('-') {
                     eprintln!("Unknown option: {}", other);
@@ -89,6 +134,8 @@ fn main() {
         }
         i += 1;
     }
+
+    let controls_path = controls_path_opt.or_else(|| env::var("NES_CONTROLS").ok());
 
     let rom_path = match rom_path_opt
         .or_else(|| env::var("ROM_PATH").ok())
@@ -148,6 +195,7 @@ fn main() {
         scale,
         title: format!("NES Emulator - {}", rom_title),
         debug_audio,
+        controls_path,
     };
 
     if let Err(e) = nes::run_emulator(nes, config) {

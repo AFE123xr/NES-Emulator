@@ -1,0 +1,40 @@
+{
+  "player1": {
+    "up": [
+      "Up"
+    ],
+    "down": [
+      "Down"
+    ],
+    "left": [
+      "Left"
+    ],
+    "right": [
+      "Right"
+    ],
+    "a": [
+      "A"
+    ],
+    "b": [
+      "O"
+    ],
+    "select": [
+      "E"
+    ],
+    "start": "U"
+  },
+  "hotkeys": {
+    "pause": "P",
+    "reset": "R",
+    "fast_forward": "Tab",
+    "mute": "M",
+    "audio_diagnostics": "F3",
+    "audio_dump": "F4",
+    "screenshot": [
+      "F12",
+      "F2"
+    ],
+    "fullscreen": "F11",
+    "exit": "Escape"
+  }
+}

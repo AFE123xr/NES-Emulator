@@ -3,7 +3,7 @@
 [![CI](https://github.com/AFE123xr/NES-Emulator/actions/workflows/ci.yml/badge.svg)](https://github.com/AFE123xr/NES-Emulator/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-stable-brightgreen.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-19%20passed%20(100%25)-success.svg)](#testing--verification)
+[![Tests](https://img.shields.io/badge/tests-26%20passed%20(100%25)-success.svg)](#testing--verification)
 [![Cycle Accurate](https://img.shields.io/badge/CPU-cycle--accurate%20nestest%20match-blue.svg)](#cpu-ricoh-2a03--mos-6502)
 [![Speed](https://img.shields.io/badge/benchmark->750%20FPS%20headless-orange.svg)](#performance--benchmarking)
 
@@ -83,19 +83,23 @@ Full iNES format parsing with battery-backed PRG RAM persistence:
 
 ## 🎮 Controls & Keybindings
 
-### Player 1 Gamepad
-| Button | Primary Keyboard Key | Secondary Key |
-|:---|:---|:---|
-| **D-Pad Up** | Up Arrow (`↑`) | `W` |
-| **D-Pad Down** | Down Arrow (`↓`) | `S` |
-| **D-Pad Left** | Left Arrow (`←`) | `A` |
-| **D-Pad Right** | Right Arrow (`→`) | `D` |
-| **A Button** | `Z` | `K` |
-| **B Button** | `X` | `J` |
-| **Select** | `Space` | Right Shift |
-| **Start** | `Enter` | Return |
+All keyboard controls and hotkeys can be fully customized via a JSON configuration file. When starting, the emulator automatically searches for `./controls.json`. You can also specify an arbitrary config file with `--controls <path>` or the `NES_CONTROLS` environment variable.
+
+### Default Gamepad Controls
+
+| Button | Player 1 Primary | Player 1 Secondary | Player 2 |
+|:---|:---|:---|:---|
+| **D-Pad Up** | Up Arrow (`↑`) | `W` | `I` |
+| **D-Pad Down** | Down Arrow (`↓`) | `S` | `K` |
+| **D-Pad Left** | Left Arrow (`←`) | `A` | `J` |
+| **D-Pad Right** | Right Arrow (`→`) | `D` | `L` |
+| **A Button** | `Z` | `K` | `O` |
+| **B Button** | `X` | `J` | `U` |
+| **Select** | `Space` | Right Shift | `Y` |
+| **Start** | `Enter` | Return | `H` |
 
 ### Emulator Hotkeys
+
 | Key | Function |
 |:---|:---|
 | **`F12` / `F2`** | **Capture Screenshot** (lossless 24-bit BMP saved to `./screenshots/`) |
@@ -107,6 +111,65 @@ Full iNES format parsing with battery-backed PRG RAM persistence:
 | **`M`** | **Mute / Unmute** audio |
 | **`F11`** | **Toggle Fullscreen** mode |
 | **`Esc`** | **Quit Emulator** (auto-saves audio dump for review) |
+
+### 🛠️ Customizing Controls with JSON
+
+You can configure any button to use a single key name (e.g. `"W"`) or multiple keys in an array (e.g. `["Up", "W"]`).
+
+Generate a clean default configuration file anytime using:
+```bash
+# Generate controls.json in current directory
+./target/release/nes --generate-controls
+
+# Or generate to a custom path
+./target/release/nes --generate-controls my_controls.json
+```
+
+Example [`controls.json`](controls.json):
+```json
+{
+  "player1": {
+    "up": ["Up", "W"],
+    "down": ["Down", "S"],
+    "left": ["Left", "A"],
+    "right": ["Right", "D"],
+    "a": ["Z", "K"],
+    "b": ["X", "J"],
+    "select": ["Space", "RShift"],
+    "start": "Return"
+  },
+  "player2": {
+    "up": "I",
+    "down": "K",
+    "left": "J",
+    "right": "L",
+    "a": "O",
+    "b": "U",
+    "select": "Y",
+    "start": "H"
+  },
+  "hotkeys": {
+    "pause": "P",
+    "reset": "R",
+    "fast_forward": "Tab",
+    "mute": "M",
+    "audio_diagnostics": "F3",
+    "audio_dump": "F4",
+    "screenshot": ["F12", "F2"],
+    "fullscreen": "F11",
+    "exit": "Escape"
+  }
+}
+```
+
+#### Supported Key Names & Aliases
+- **Letters**: `"A"`–`"Z"` (case-insensitive, e.g. `"w"` or `"W"`)
+- **Numbers**: `"0"`–`"9"`, `"Numpad0"`–`"Numpad9"` (or `"Kp0"`–`"Kp9"`)
+- **Directions**: `"Up"`, `"Down"`, `"Left"`, `"Right"` (or `"ArrowUp"`, etc.)
+- **Navigation & Editing**: `"Return"`, `"Enter"`, `"Space"`, `"Tab"`, `"Backspace"`, `"Escape"` / `"Esc"`, `"Insert"`, `"Delete"`, `"Home"`, `"End"`, `"PageUp"`, `"PageDown"`
+- **Modifiers**: `"LShift"`, `"RShift"`, `"Shift"`, `"LCtrl"`, `"RCtrl"`, `"Ctrl"`, `"LAlt"`, `"RAlt"`, `"Alt"`
+- **Function Keys**: `"F1"` through `"F12"`
+- **Symbols**: `"Period"` / `"."`, `"Comma"` / `","`, `"Minus"` / `"-"`, `"Plus"` / `"+"`, `"Equals"` / `"="`, `"Slash"` / `"/"`, `"Backslash"` / `"\\"`
 
 ---
 
@@ -171,6 +234,8 @@ Run any standard `.nes` ROM file directly by providing the path:
 | Flag | Argument | Description | Example |
 |:---|:---|:---|:---|
 | `<rom_path>` | File path | Path to any valid iNES ROM file | `./target/release/nes roms/mario.nes` |
+| `--controls`, `--config` | `<file>` | Path to custom controls JSON file (default: `./controls.json`) | `--controls custom_keys.json` |
+| `--generate-controls` | `[file]` | Generate a default controls JSON configuration file | `--generate-controls controls.json` |
 | `--scale` | `1`–`8` | Window scale multiplier (default: `3` = 768×720) | `--scale 4` (1024×960 window) |
 | `--debug-audio` | *None* | Enable real-time audio buffer and underrun diagnostics | `--debug-audio` |
 | `--headless` | `<frames>` | Run headlessly for $N$ frames without a window (benchmarking/testing) | `--headless 1000` |
@@ -245,6 +310,7 @@ NES-Emulator/
 │       └── ci.yml                # Automated GitHub Actions CI workflow
 ├── scripts/
 │   └── ci-dev.sh                 # Local CI-dev test & verification runner
+├── controls.json                 # Configurable JSON controls template
 ├── Cargo.toml                    # Rust crate configuration & dependencies
 ├── build.rs                      # Native SDL2 library linking
 ├── README.md                     # Documentation and screenshots
@@ -269,7 +335,9 @@ NES-Emulator/
 │   ├── cartridge/                # Cartridge header decoder & mappers
 │   │   ├── header.rs             # iNES header parser
 │   │   └── mapper/               # Mappers 0, 1, 2, 3, 4, 7
-│   ├── controller/               # Standard NES joypad shift registers
+│   ├── controller/               # Standard NES joypad & JSON input configuration
+│   │   ├── mod.rs                # Joypad shift register logic
+│   │   └── config.rs             # JSON controls parsing & InputMap bindings
 │   ├── cpu/                      # Ricoh 2A03 / MOS 6502 CPU core
 │   │   ├── addressing.rs         # 13 addressing modes
 │   │   ├── opcodes.rs            # Official & unofficial opcodes
@@ -284,6 +352,7 @@ NES-Emulator/
     ├── apu_tests.rs              # Audio channel unit tests
     ├── blargg_tests.rs           # Blargg CPU instruction tests
     ├── capture_readme_screenshots.rs # Automated screenshot capture pipeline
+    ├── controls_test.rs          # JSON controls configuration & key mapping tests
     ├── mapper_tests.rs           # Mappers 0, 1, 2, 4 IRQ tests
     ├── nestest.rs                # Golden master nestest cycle verification
     ├── ppu_tests.rs              # PPU scrolling & VRAM mirroring tests
