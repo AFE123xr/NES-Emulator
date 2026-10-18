@@ -44,6 +44,20 @@ impl Controller {
         }
     }
 
+    pub fn button_states(&self) -> u8 {
+        self.button_states
+    }
+
+    pub fn set_all_buttons(&mut self, states: u8) {
+        self.button_states = states;
+    }
+
+    pub fn reset(&mut self) {
+        self.button_states = 0;
+        self.shift_index = 0;
+        self.strobe = false;
+    }
+
     pub fn write_strobe(&mut self, val: u8) {
         self.strobe = (val & 1) != 0;
         if self.strobe {

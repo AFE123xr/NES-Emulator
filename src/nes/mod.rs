@@ -22,6 +22,9 @@ impl Nes {
         self.cpu.reset(&mut self.bus);
         self.bus.ppu.reset();
         self.bus.apu.reset();
+        self.bus.controller1.reset();
+        self.bus.controller2.reset();
+        self.bus.dma_cycles = 0;
     }
 
     pub fn set_button_p1(&mut self, button: JoypadButton, pressed: bool) {
@@ -30,6 +33,61 @@ impl Nes {
 
     pub fn set_button_p2(&mut self, button: JoypadButton, pressed: bool) {
         self.bus.controller2.set_button_state(button, pressed);
+    }
+
+    pub fn set_buttons_p1(&mut self, buttons: u8) {
+        self.bus.controller1.set_all_buttons(buttons);
+    }
+
+    pub fn set_buttons_p2(&mut self, buttons: u8) {
+        self.bus.controller2.set_all_buttons(buttons);
+    }
+
+    pub fn buttons_p1(&self) -> u8 {
+        self.bus.controller1.button_states()
+    }
+
+    pub fn buttons_p2(&self) -> u8 {
+        self.bus.controller2.button_states()
+    }
+
+    pub fn rom_hash(&self) -> u32 {
+        self.bus.cartridge.rom_hash
+    }
+
+    /// Computes a fast deterministic 32-bit FNV-1a checksum of core emulator state
+    /// (CPU registers, CPU RAM, PPU registers/VRAM/OAM/palette) to verify lockstep sync.
+    pub fn state_checksum(&self) -> u32 {
+        let mut hash: u32 = 0x811c_9dc5;
+        let mut feed = |bytes: &[u8]| {
+            for &b in bytes {
+                hash ^= b as u32;
+                hash = hash.wrapping_mul(0x0100_0193);
+            }
+        };
+
+        feed(&[
+            self.cpu.registers.a,
+            self.cpu.registers.x,
+            self.cpu.registers.y,
+            self.cpu.registers.sp,
+            self.cpu.registers.p,
+        ]);
+        feed(&self.cpu.registers.pc.to_le_bytes());
+        feed(&self.bus.cpu_ram);
+        feed(&self.bus.ppu.vram);
+        feed(&self.bus.ppu.palette_ram);
+        feed(&self.bus.ppu.oam);
+        feed(&[
+            self.bus.ppu.ctrl,
+            self.bus.ppu.mask,
+            self.bus.ppu.status,
+            self.bus.ppu.fine_x,
+            self.bus.ppu.w as u8,
+        ]);
+        feed(&self.bus.ppu.v.to_le_bytes());
+        feed(&self.bus.ppu.t.to_le_bytes());
+        hash
     }
 
     pub fn step(&mut self) -> u8 {

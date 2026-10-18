@@ -13,6 +13,18 @@ use std::path::Path;
 pub struct Cartridge {
     pub header: RomHeader,
     pub mapper: Box<dyn Mapper>,
+    pub rom_hash: u32,
+}
+
+fn fnv1a_32(slices: &[&[u8]]) -> u32 {
+    let mut hash: u32 = 0x811c_9dc5;
+    for slice in slices {
+        for &byte in *slice {
+            hash ^= byte as u32;
+            hash = hash.wrapping_mul(0x0100_0193);
+        }
+    }
+    hash
 }
 
 impl Cartridge {
@@ -39,6 +51,9 @@ impl Cartridge {
         } else {
             Vec::new()
         };
+
+        let mapper_id_byte = [header.mapper_id];
+        let rom_hash = fnv1a_32(&[&mapper_id_byte, &prg_rom, &chr_rom]);
 
         let mapper: Box<dyn Mapper> = match header.mapper_id {
             0 => Box::new(Mapper000::new(
@@ -70,7 +85,11 @@ impl Cartridge {
             id => return Err(format!("Unsupported mapper ID: {}", id)),
         };
 
-        Ok(Self { header, mapper })
+        Ok(Self {
+            header,
+            mapper,
+            rom_hash,
+        })
     }
 
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
