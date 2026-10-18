@@ -234,6 +234,11 @@ Run any standard `.nes` ROM file directly by providing the path:
 | Flag | Argument | Description | Example |
 |:---|:---|:---|:---|
 | `<rom_path>` | File path | Path to any valid iNES ROM file | `./target/release/nes roms/mario.nes` |
+| `--host` | `[port]` | Host a P2P multiplayer session as Player 1 (default UDP port: `7878`) and print shareable hash | `--host` or `--host 9000` |
+| `--host-ip` | `<ip>` | Override the IP address encoded in the host's shareable hash (e.g. public IP or VPN/Tailscale IP) | `--host-ip 100.64.1.25` |
+| `--join` | `<hash>` | Join a P2P multiplayer session as Player 2 using the host's custom hash code | `--join NES-XXXXXX-XXXXXX-XXXXXX-XXXXXX` |
+| `--delay` | `1`–`10` | Lockstep input delay in frames when hosting (default: `2`) | `--delay 3` |
+| `--ignore-rom-hash` | *None* | Allow P2P connection even if ROM checksums differ (e.g. translated/patched ROMs) | `--ignore-rom-hash` |
 | `--controls`, `--config` | `<file>` | Path to custom controls JSON file (default: `./controls.json`) | `--controls custom_keys.json` |
 | `--generate-controls` | `[file]` | Generate a default controls JSON configuration file | `--generate-controls controls.json` |
 | `--scale` | `1`–`8` | Window scale multiplier (default: `3` = 768×720) | `--scale 4` (1024×960 window) |
@@ -242,6 +247,36 @@ Run any standard `.nes` ROM file directly by providing the path:
 | `--headless` | `<frames>` | Run headlessly for $N$ frames without a window (benchmarking/testing) | `--headless 1000` |
 | `--help`, `-h` | *None* | Display usage instructions and control bindings | `--help` |
 
+---
+
+## 🌐 P2P Online Multiplayer (Custom Shareable Hash)
+
+Play 2-player NES classics (e.g. *Contra*, *Super Mario Bros.*, *Double Dragon II*, *Bubble Bobble*) over a direct UDP peer-to-peer connection using a compact custom invite hash (`NES-XXXXXX-XXXXXX-XXXXXX-XXXXXX`).
+
+### How It Works
+- **Custom Shareable Hash (`InviteHash`)**: Encodes the host's IP address (IPv4 or IPv6), UDP port, 32-bit FNV-1a ROM checksum, 16-bit session token, negotiated frame input delay, and an 8-bit CRC-8 integrity check (with XOR keystream obfuscation) into a human-friendly Crockford Base32 code.
+- **Deterministic Frame Lockstep**: Host (Player 1) and Peer (Player 2) exchange controller inputs for frame `F + delay` along with a rolling 16-frame redundant input history (preventing single UDP packet drops from causing stalls) and per-frame emulator state checksums (`CPU + RAM + PPU`) to verify zero-desync synchronization.
+- **Synchronized Console Reset & Pause**: Pressing `R` (Reset) or `P` (Pause) schedules a frame-locked control flag so both emulators execute the reset or pause on the exact same frame.
+- **Ergonomic Controls**: In P2P mode, both Player 1 (Host) and Player 2 (Peer) use standard Player 1 keybindings (Arrow keys / WASD, Z/K, X/J, Space, Enter) on their own keyboard.
+
+### Starting a Multiplayer Game
+
+1. **Player 1 (Host)** launches the game with `--host`:
+   ```bash
+   ./target/release/nes path/to/contra.nes --host
+   ```
+   The emulator prints a shareable invite hash to the terminal (and displays it in the window title while waiting):
+   ```text
+   Shareable Hash:    NES-7K4M9P-2X8QR5-T1W9B3-N6C4H8
+   Localhost Hash:    NES-3F9A1C-8D2E4B-7M5P0Q-W6X9Z2 (same machine)
+   ```
+   *(Tip: If hosting across the internet via port-forwarding or a VPN/Tailscale IP, pass `--host-ip <your_ip>` and optionally `--delay 3`.)*
+
+2. **Player 2 (Peer)** launches the same ROM with `--join <hash>`:
+   ```bash
+   ./target/release/nes path/to/contra.nes --join NES-7K4M9P-2X8QR5-T1W9B3-N6C4H8
+   ```
+   As soon as Player 2 connects, both emulators synchronize at frame 0 and display live ping (`ms`) and frame delay in the window title bar.
 
 ---
 

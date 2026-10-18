@@ -1,8 +1,12 @@
-use nes::{Cartridge, ControlsConfig, EmulatorConfig, Nes};
+use nes::{
+    Cartridge, ControlsConfig, EmulatorConfig, LockstepPoll, Nes, NetplayConfig, NetplayRole,
+    NetplaySession, DEFAULT_INPUT_DELAY, DEFAULT_NETPLAY_PORT,
+};
 use std::env;
+use std::net::IpAddr;
 use std::path::Path;
 use std::process;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 fn print_usage() {
     println!("NES Emulator (Rust)");
@@ -30,14 +34,34 @@ fn print_usage() {
     );
     println!("  --help, -h               Show this help message");
     println!();
+    println!("P2P Online Multiplayer Options:");
+    println!(
+        "  --host [port]            Host a P2P session as Player 1 (default UDP port: {})",
+        DEFAULT_NETPLAY_PORT
+    );
+    println!(
+        "                           Prints a custom shareable hash (NES-XXXXXX-...) for Player 2"
+    );
+    println!(
+        "  --host-ip <ip>           Override the IP address encoded into the shareable host hash"
+    );
+    println!(
+        "  --join <hash>            Join a P2P session as Player 2 using the host's custom hash"
+    );
+    println!(
+        "  --delay <frames>         Lockstep input delay in frames when hosting (1-10, default: {})",
+        DEFAULT_INPUT_DELAY
+    );
+    println!("  --ignore-rom-hash        Allow P2P connection even if ROM checksums differ");
+    println!();
     println!("Default Controls (configurable via controls.json):");
-    println!("  Player 1:");
+    println!("  Player 1 (and Local Player in P2P Netplay):");
     println!("    D-Pad:                 Arrow keys or WASD");
     println!("    A button:              Z or K");
     println!("    B button:              X or J");
     println!("    Select:                Space or Right Shift");
     println!("    Start:                 Enter");
-    println!("  Player 2:");
+    println!("  Player 2 (Local 2-Player):");
     println!("    D-Pad:                 I, K, J, L");
     println!("    A button:              O");
     println!("    B button:              U");
@@ -71,6 +95,13 @@ fn main() {
     let mut debug_audio = false;
     let mut save_audio_on_exit = false;
 
+    let mut netplay_role: Option<NetplayRole> = None;
+    let mut netplay_port: u16 = DEFAULT_NETPLAY_PORT;
+    let mut netplay_host_ip: Option<IpAddr> = None;
+    let mut netplay_join_hash: Option<String> = None;
+    let mut netplay_delay: u8 = DEFAULT_INPUT_DELAY;
+    let mut ignore_rom_hash = false;
+
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -95,6 +126,63 @@ fn main() {
             }
             "--save-audio-on-exit" => {
                 save_audio_on_exit = true;
+            }
+            "--host" => {
+                netplay_role = Some(NetplayRole::Host);
+                if i + 1 < args.len() {
+                    if let Ok(port) = args[i + 1].parse::<u16>() {
+                        netplay_port = port;
+                        i += 1;
+                    }
+                }
+            }
+            "--host-ip" => {
+                if i + 1 < args.len() {
+                    match args[i + 1].parse::<IpAddr>() {
+                        Ok(ip) => {
+                            netplay_host_ip = Some(ip);
+                            i += 1;
+                        }
+                        Err(e) => {
+                            eprintln!("Error: Invalid IP address '{}': {}", args[i + 1], e);
+                            process::exit(1);
+                        }
+                    }
+                } else {
+                    eprintln!("Error: Missing IP address after --host-ip");
+                    process::exit(1);
+                }
+            }
+            "--join" | "--connect" => {
+                if i + 1 < args.len() {
+                    netplay_role = Some(NetplayRole::Peer);
+                    netplay_join_hash = Some(args[i + 1].clone());
+                    i += 1;
+                } else {
+                    eprintln!("Error: Missing invite hash after {}", args[i]);
+                    print_usage();
+                    process::exit(1);
+                }
+            }
+            "--delay" => {
+                if i + 1 < args.len() {
+                    match args[i + 1].parse::<u8>() {
+                        Ok(d) => {
+                            netplay_delay = d.clamp(1, 10);
+                            i += 1;
+                        }
+                        Err(_) => {
+                            eprintln!("Error: Invalid frame delay '{}'", args[i + 1]);
+                            process::exit(1);
+                        }
+                    }
+                } else {
+                    eprintln!("Error: Missing frame count after --delay");
+                    process::exit(1);
+                }
+            }
+            "--ignore-rom-hash" => {
+                ignore_rom_hash = true;
             }
             "--controls" | "--config" => {
                 if i + 1 < args.len() {
@@ -172,16 +260,96 @@ fn main() {
         .unwrap_or("Game");
 
     println!(
-        "Mapper: {}, PRG ROM: {} KB, CHR ROM: {} KB, Mirroring: {:?}",
+        "Mapper: {}, PRG ROM: {} KB, CHR ROM: {} KB, Mirroring: {:?}, ROM Hash: 0x{:08X}",
         cartridge.header.mapper_id,
         cartridge.header.prg_rom_size / 1024,
         cartridge.header.chr_rom_size / 1024,
         cartridge.header.mirroring,
+        cartridge.rom_hash,
     );
+
+    let netplay = netplay_role.map(|role| NetplayConfig {
+        role,
+        port: netplay_port,
+        host_ip_override: netplay_host_ip,
+        join_hash: netplay_join_hash,
+        input_delay: netplay_delay,
+        ignore_rom_hash,
+    });
 
     let mut nes = Nes::new(cartridge);
 
     if let Some(frames) = headless_frames {
+        if let Some(net_cfg) = netplay {
+            let mut session = match net_cfg.role {
+                NetplayRole::Host => match NetplaySession::new_host(
+                    net_cfg.port,
+                    net_cfg.host_ip_override,
+                    nes.rom_hash(),
+                    net_cfg.input_delay,
+                    net_cfg.ignore_rom_hash,
+                ) {
+                    Ok(s) => {
+                        println!("Shareable Hash: {}", s.invite_hash.encode());
+                        println!("Localhost Hash: {}", s.localhost_hash.encode());
+                        s
+                    }
+                    Err(e) => {
+                        eprintln!("Netplay host error: {}", e);
+                        process::exit(1);
+                    }
+                },
+                NetplayRole::Peer => {
+                    let hash_str = net_cfg.join_hash.as_deref().unwrap_or("");
+                    match NetplaySession::new_peer(
+                        hash_str,
+                        nes.rom_hash(),
+                        net_cfg.ignore_rom_hash,
+                    ) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            eprintln!("Netplay join error: {}", e);
+                            process::exit(1);
+                        }
+                    }
+                }
+            };
+
+            println!("Running headless P2P netplay for {} frames...", frames);
+            let start = Instant::now();
+            let mut completed = 0;
+            while completed < frames {
+                match session.poll_step(0, 0, nes.state_checksum()) {
+                    LockstepPoll::WaitingForHandshake
+                    | LockstepPoll::WaitingForRemoteInput { .. } => {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    LockstepPoll::FrameReady(sync) => {
+                        if sync.reset_triggered {
+                            nes.reset();
+                        }
+                        nes.set_buttons_p1(sync.p1_buttons);
+                        nes.set_buttons_p2(sync.p2_buttons);
+                        nes.step_frame();
+                        completed += 1;
+                    }
+                    LockstepPoll::Disconnected(reason) => {
+                        eprintln!("Netplay disconnected at frame {}: {}", completed, reason);
+                        process::exit(1);
+                    }
+                }
+            }
+            session.disconnect();
+            let elapsed = start.elapsed();
+            println!(
+                "Completed {} synchronized P2P frames in {:.3}s (Final Checksum: 0x{:08X})",
+                frames,
+                elapsed.as_secs_f64(),
+                nes.state_checksum()
+            );
+            return;
+        }
+
         println!("Running headless for {} frames...", frames);
         let start = Instant::now();
         for _ in 0..frames {
@@ -204,6 +372,7 @@ fn main() {
         debug_audio,
         controls_path,
         save_audio_on_exit,
+        netplay,
     };
 
     if let Err(e) = nes::run_emulator(nes, config) {
