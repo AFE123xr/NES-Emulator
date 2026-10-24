@@ -1,6 +1,6 @@
 use nes::{
-    Cartridge, ControlsConfig, EmulatorConfig, LockstepPoll, Nes, NetplayConfig, NetplayRole,
-    NetplaySession, DEFAULT_INPUT_DELAY, DEFAULT_NETPLAY_PORT,
+    Cartridge, CheatsConfig, ControlsConfig, EmulatorConfig, LockstepPoll, Nes, NetplayConfig,
+    NetplayRole, NetplaySession, DEFAULT_INPUT_DELAY, DEFAULT_NETPLAY_PORT,
 };
 use std::env;
 use std::net::IpAddr;
@@ -19,6 +19,7 @@ fn print_usage() {
         "  ROM_PATH, NES_ROM        Path to .nes ROM file (used if rom_path argument is omitted)"
     );
     println!("  NES_CONTROLS             Path to custom controls JSON file");
+    println!("  NES_CHEATS               Path to custom cheats JSON file");
     println!();
     println!("Options:");
     println!("  --scale <factor>         Window scale factor (1, 2, 3, 4, default: 3)");
@@ -32,6 +33,9 @@ fn print_usage() {
     println!(
         "  --generate-controls [f]  Generate default controls JSON file (default: controls.json)"
     );
+    println!("  --cheats <file>          Path to custom cheats JSON file (default: ./cheats.json if present)");
+    println!("  --no-cheats              Disable all cheats for this session");
+    println!("  --generate-cheats [f]    Generate default cheats JSON file (default: cheats.json)");
     println!("  --help, -h               Show this help message");
     println!();
     println!("P2P Online Multiplayer Options:");
@@ -72,6 +76,7 @@ fn print_usage() {
     println!("  F12, F2:                 Capture Screenshot (saved to ./screenshots/)");
     println!("  F3:                      Toggle real-time Audio Diagnostics");
     println!("  F4:                      Save Audio Dump (.wav saved to ./audio_dumps/)");
+    println!("  F8:                      Toggle Cheats On / Off");
     println!("  P:                       Pause / Resume");
     println!("  R:                       Reset console");
     println!("  Tab:                     Fast forward (hold)");
@@ -90,6 +95,8 @@ fn main() {
 
     let mut rom_path_opt: Option<String> = None;
     let mut controls_path_opt: Option<String> = None;
+    let mut cheats_path_opt: Option<String> = None;
+    let mut no_cheats = false;
     let mut scale: u32 = 3;
     let mut headless_frames: Option<usize> = None;
     let mut debug_audio = false;
@@ -213,6 +220,38 @@ fn main() {
                     }
                 }
             }
+            "--cheats" => {
+                if i + 1 < args.len() {
+                    cheats_path_opt = Some(args[i + 1].clone());
+                    i += 1;
+                } else {
+                    eprintln!("Error: Missing file path after {}", args[i]);
+                    print_usage();
+                    process::exit(1);
+                }
+            }
+            "--no-cheats" => {
+                no_cheats = true;
+            }
+            "--generate-cheats" => {
+                let target = if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    i += 1;
+                    args[i].clone()
+                } else {
+                    "cheats.json".to_string()
+                };
+                let default_cheats = CheatsConfig::default();
+                match default_cheats.save_to_file(&target) {
+                    Ok(()) => {
+                        println!("Created default cheats configuration file at: {}", target);
+                        return;
+                    }
+                    Err(e) => {
+                        eprintln!("Error generating cheats configuration: {}", e);
+                        process::exit(1);
+                    }
+                }
+            }
             other => {
                 if other.starts_with('-') {
                     eprintln!("Unknown option: {}", other);
@@ -231,6 +270,7 @@ fn main() {
     }
 
     let controls_path = controls_path_opt.or_else(|| env::var("NES_CONTROLS").ok());
+    let cheats_path = cheats_path_opt.or_else(|| env::var("NES_CHEATS").ok());
 
     let rom_path = match rom_path_opt
         .or_else(|| env::var("ROM_PATH").ok())
@@ -278,6 +318,44 @@ fn main() {
     });
 
     let mut nes = Nes::new(cartridge);
+
+    if !no_cheats {
+        let (cheats_cfg, cheats_src) = CheatsConfig::load_or_empty(cheats_path.as_deref());
+        let (controls_cfg, controls_src) =
+            ControlsConfig::load_or_default(controls_path.as_deref());
+        let mut all_cheats = cheats_cfg.cheats;
+        for c in &controls_cfg.cheats {
+            if !all_cheats.contains(c) {
+                all_cheats.push(c.clone());
+            }
+        }
+        if !all_cheats.is_empty() {
+            let active_count = all_cheats.iter().filter(|c| c.enabled).count();
+            if let Some(src) = &cheats_src {
+                println!(
+                    "✨ Cheats loaded from {}: {} active cheat(s)",
+                    src, active_count
+                );
+            } else if let Some(src) = &controls_src {
+                println!(
+                    "✨ Cheats loaded from {}: {} active cheat(s)",
+                    src, active_count
+                );
+            }
+            for cheat in all_cheats.iter().filter(|c| c.enabled) {
+                let label = if cheat.name.is_empty() {
+                    "Unnamed cheat"
+                } else {
+                    &cheat.name
+                };
+                println!(
+                    "   • {} -> [0x{:04X}] = 0x{:02X}",
+                    label, cheat.address, cheat.value
+                );
+            }
+            nes.set_cheats(all_cheats);
+        }
+    }
 
     if let Some(frames) = headless_frames {
         if let Some(net_cfg) = netplay {
@@ -371,6 +449,8 @@ fn main() {
         title: format!("NES Emulator - {}", rom_title),
         debug_audio,
         controls_path,
+        cheats_path,
+        no_cheats,
         save_audio_on_exit,
         netplay,
     };

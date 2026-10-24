@@ -117,6 +117,8 @@ pub struct HotkeysConfig {
     pub screenshot: Option<KeyBinding>,
     #[serde(default)]
     pub fullscreen: Option<KeyBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub toggle_cheats: Option<KeyBinding>,
     #[serde(default)]
     pub exit: Option<KeyBinding>,
 }
@@ -132,6 +134,7 @@ impl Default for HotkeysConfig {
             audio_dump: Some(KeyBinding::Single("F4".into())),
             screenshot: Some(KeyBinding::Multiple(vec!["F12".into(), "F2".into()])),
             fullscreen: Some(KeyBinding::Single("F11".into())),
+            toggle_cheats: Some(KeyBinding::Single("F8".into())),
             exit: Some(KeyBinding::Single("Escape".into())),
         }
     }
@@ -145,6 +148,8 @@ pub struct ControlsConfig {
     pub player2: PlayerControlsConfig,
     #[serde(default)]
     pub hotkeys: HotkeysConfig,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cheats: Vec<crate::cheats::CheatEntry>,
 }
 
 fn default_player2() -> PlayerControlsConfig {
@@ -157,6 +162,7 @@ impl Default for ControlsConfig {
             player1: PlayerControlsConfig::player1_default(),
             player2: PlayerControlsConfig::player2_default(),
             hotkeys: HotkeysConfig::default(),
+            cheats: Vec::new(),
         }
     }
 }
@@ -241,6 +247,7 @@ pub enum HotkeyAction {
     AudioDump,
     Screenshot,
     Fullscreen,
+    ToggleCheats,
     Exit,
 }
 
@@ -330,6 +337,11 @@ impl InputMap {
         bind(
             &config.hotkeys.fullscreen,
             InputAction::Hotkey(HotkeyAction::Fullscreen),
+            false,
+        );
+        bind(
+            &config.hotkeys.toggle_cheats,
+            InputAction::Hotkey(HotkeyAction::ToggleCheats),
             false,
         );
         bind(
