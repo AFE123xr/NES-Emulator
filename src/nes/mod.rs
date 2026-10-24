@@ -1,5 +1,6 @@
 use crate::bus::Bus;
 use crate::cartridge::Cartridge;
+use crate::cheats::CheatEntry;
 use crate::controller::JoypadButton;
 use crate::cpu::{Cpu, Memory};
 use crate::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
@@ -25,6 +26,33 @@ impl Nes {
         self.bus.controller1.reset();
         self.bus.controller2.reset();
         self.bus.dma_cycles = 0;
+        self.bus.apply_cheats();
+    }
+
+    pub fn set_cheats(&mut self, cheats: Vec<CheatEntry>) {
+        self.bus.cheats = cheats;
+        self.bus.apply_cheats();
+    }
+
+    pub fn add_cheat(&mut self, cheat: CheatEntry) {
+        self.bus.cheats.push(cheat);
+        self.bus.apply_cheats();
+    }
+
+    pub fn clear_cheats(&mut self) {
+        self.bus.cheats.clear();
+    }
+
+    pub fn toggle_cheats(&mut self) -> bool {
+        self.bus.cheats_enabled = !self.bus.cheats_enabled;
+        if self.bus.cheats_enabled {
+            self.bus.apply_cheats();
+        }
+        self.bus.cheats_enabled
+    }
+
+    pub fn cheats_enabled(&self) -> bool {
+        self.bus.cheats_enabled
     }
 
     pub fn set_button_p1(&mut self, button: JoypadButton, pressed: bool) {
@@ -139,9 +167,11 @@ impl Nes {
     }
 
     pub fn step_frame(&mut self) -> &[u8; SCREEN_WIDTH * SCREEN_HEIGHT * 3] {
+        self.bus.apply_cheats();
         while !self.bus.ppu.frame_complete {
             self.step();
         }
+        self.bus.apply_cheats();
         self.bus.ppu.frame_complete = false;
         self.bus.apu.flush_samples();
         &self.bus.ppu.frame_buffer

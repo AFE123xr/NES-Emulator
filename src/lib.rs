@@ -2,6 +2,7 @@ pub mod apu;
 pub mod audio;
 pub mod bus;
 pub mod cartridge;
+pub mod cheats;
 pub mod controller;
 pub mod cpu;
 pub mod nes;
@@ -11,6 +12,7 @@ pub mod ui;
 
 pub use audio::{write_wav_file, AudioDiagnostics};
 pub use cartridge::Cartridge;
+pub use cheats::{CheatEntry, CheatsConfig};
 pub use controller::{ControlsConfig, HotkeyAction, InputAction, InputMap, JoypadButton};
 pub use nes::Nes;
 pub use netplay::{

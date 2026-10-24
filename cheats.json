@@ -1,0 +1,16 @@
+{
+  "cheats": [
+    {
+      "name": "Contra - Player 1 Spread Gun + Rapid Fire",
+      "address": "0x00AA",
+      "value": "0x13",
+      "enabled": true
+    },
+    {
+      "name": "Contra - Player 2 Spread Gun + Rapid Fire",
+      "address": "0x00AB",
+      "value": "0x13",
+      "enabled": true
+    }
+  ]
+}

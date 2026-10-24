@@ -1,6 +1,7 @@
 pub mod screenshot;
 
 use crate::audio::AudioPlayer;
+use crate::cheats::CheatsConfig;
 use crate::controller::{ControlsConfig, HotkeyAction, InputAction, InputMap, JoypadButton};
 use crate::nes::Nes;
 use crate::netplay::{
@@ -21,6 +22,8 @@ pub struct EmulatorConfig {
     pub title: String,
     pub debug_audio: bool,
     pub controls_path: Option<String>,
+    pub cheats_path: Option<String>,
+    pub no_cheats: bool,
     /// Automatically save the session's audio as a WAV dump on exit.
     pub save_audio_on_exit: bool,
     /// Optional P2P online multiplayer configuration.
@@ -34,6 +37,8 @@ impl Default for EmulatorConfig {
             title: "NES Emulator".to_string(),
             debug_audio: false,
             controls_path: None,
+            cheats_path: None,
+            no_cheats: false,
             save_audio_on_exit: false,
             netplay: None,
         }
@@ -154,6 +159,43 @@ pub fn run_emulator(mut nes: Nes, config: EmulatorConfig) -> Result<(), String> 
     }
     let input_map = InputMap::new(&controls_config);
 
+    // Load cheats configuration if not disabled and not already loaded
+    if !config.no_cheats && nes.bus.cheats.is_empty() {
+        let (cheats_cfg, cheats_src) = CheatsConfig::load_or_empty(config.cheats_path.as_deref());
+        let mut all_cheats = cheats_cfg.cheats;
+        for c in &controls_config.cheats {
+            if !all_cheats.contains(c) {
+                all_cheats.push(c.clone());
+            }
+        }
+        if !all_cheats.is_empty() {
+            let active_count = all_cheats.iter().filter(|c| c.enabled).count();
+            if let Some(src) = &cheats_src {
+                println!(
+                    "✨ Cheats loaded from {}: {} active cheat(s)",
+                    src, active_count
+                );
+            } else if let Some(src) = &loaded_from {
+                println!(
+                    "✨ Cheats loaded from {}: {} active cheat(s)",
+                    src, active_count
+                );
+            }
+            for cheat in all_cheats.iter().filter(|c| c.enabled) {
+                let label = if cheat.name.is_empty() {
+                    "Unnamed cheat"
+                } else {
+                    &cheat.name
+                };
+                println!(
+                    "   • {} -> [0x{:04X}] = 0x{:02X}",
+                    label, cheat.address, cheat.value
+                );
+            }
+            nes.set_cheats(all_cheats);
+        }
+    }
+
     let mut event_pump = sdl_context
         .event_pump()
         .map_err(|e| format!("Failed to create event pump: {}", e))?;
@@ -178,6 +220,7 @@ pub fn run_emulator(mut nes: Nes, config: EmulatorConfig) -> Result<(), String> 
     println!("  M:      Mute / Unmute Audio");
     println!("  F3:     Toggle Audio Diagnostics");
     println!("  F4:     Save Audio Dump (.wav saved to ./audio_dumps/)");
+    println!("  F8:     Toggle Cheats On / Off");
     println!("  F12/F2: Take Screenshot (saved to ./screenshots/)");
     println!("  F11:    Fullscreen Toggle");
     println!("  Esc:    Exit");
@@ -281,6 +324,13 @@ pub fn run_emulator(mut nes: Nes, config: EmulatorConfig) -> Result<(), String> 
                                             FullscreenType::Off
                                         };
                                         let _ = canvas.window_mut().set_fullscreen(fs);
+                                    }
+                                    HotkeyAction::ToggleCheats => {
+                                        let enabled = nes.toggle_cheats();
+                                        println!(
+                                            "✨ Cheats {}",
+                                            if enabled { "ENABLED" } else { "DISABLED" }
+                                        );
                                     }
                                 },
                             }

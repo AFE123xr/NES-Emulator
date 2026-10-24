@@ -105,6 +105,7 @@ All keyboard controls and hotkeys can be fully customized via a JSON configurati
 | **`F12` / `F2`** | **Capture Screenshot** (lossless 24-bit BMP saved to `./screenshots/`) |
 | **`F4`** | **Save Audio Dump** (lossless 16-bit 44.1 kHz `.wav` saved to `./audio_dumps/`) |
 | **`F3`** | **Toggle Audio Diagnostics** (real-time buffer health, underrun & pop monitor) |
+| **`F8`** | **Toggle Cheats** On / Off |
 | **`P`** | **Pause / Resume** emulation |
 | **`R`** | **Reset** console |
 | **`Tab`** | **Fast-Forward** (hold for uncapped speed, up to >750 FPS) |
@@ -170,6 +171,34 @@ Example [`controls.json`](controls.json):
 - **Modifiers**: `"LShift"`, `"RShift"`, `"Shift"`, `"LCtrl"`, `"RCtrl"`, `"Ctrl"`, `"LAlt"`, `"RAlt"`, `"Alt"`
 - **Function Keys**: `"F1"` through `"F12"`
 - **Symbols**: `"Period"` / `"."`, `"Comma"` / `","`, `"Minus"` / `"-"`, `"Plus"` / `"+"`, `"Equals"` / `"="`, `"Slash"` / `"/"`, `"Backslash"` / `"\\"`
+
+### ✨ Memory Cheats Configuration (`cheats.json`)
+
+The emulator automatically loads memory cheats from [`cheats.json`](cheats.json) in the working directory (or from a custom path via `--cheats <file>` or the `NES_CHEATS` environment variable). Cheats can also be embedded directly inside `controls.json` under a `"cheats"` array, and toggled at any time in-game with **`F8`**.
+
+Example [`cheats.json`](cheats.json) (configured for *Contra* Spread Gun + Rapid Fire):
+```json
+{
+  "cheats": [
+    {
+      "name": "Contra - Player 1 Spread Gun + Rapid Fire",
+      "address": "0x00AA",
+      "value": "0x13",
+      "enabled": true
+    },
+    {
+      "name": "Contra - Player 2 Spread Gun + Rapid Fire",
+      "address": "0x00AB",
+      "value": "0x13",
+      "enabled": true
+    }
+  ]
+}
+```
+- **`address`**: 16-bit CPU memory address in hex (`"0x00AA"`, `"$00AA"`) or decimal (`170`).
+- **`value`**: 8-bit value to write/freeze in hex (`"0x13"`, `"$13"`) or decimal (`19`). In *Contra*, `0x00AA` (P1) and `0x00AB` (P2) store the active weapon in the low nibble (`0x03` = Spread Gun) and rapid fire in bit 4 (`0x10` = Rapid Fire), so `0x13` grants Spread Gun with Rapid Fire.
+- **`compare`** *(optional)*: Only apply the cheat when the current value at `address` equals `compare`.
+- **`enabled`** *(optional, default `true`)*: Enable or disable individual cheats.
 
 ---
 
@@ -241,6 +270,9 @@ Run any standard `.nes` ROM file directly by providing the path:
 | `--ignore-rom-hash` | *None* | Allow P2P connection even if ROM checksums differ (e.g. translated/patched ROMs) | `--ignore-rom-hash` |
 | `--controls`, `--config` | `<file>` | Path to custom controls JSON file (default: `./controls.json`) | `--controls custom_keys.json` |
 | `--generate-controls` | `[file]` | Generate a default controls JSON configuration file | `--generate-controls controls.json` |
+| `--cheats` | `<file>` | Path to custom cheats JSON file (default: `./cheats.json`) | `--cheats cheats.json` |
+| `--no-cheats` | *None* | Disable all cheats for the current session | `--no-cheats` |
+| `--generate-cheats` | `[file]` | Generate a default cheats JSON file with Contra Spread + Rapid Fire | `--generate-cheats cheats.json` |
 | `--scale` | `1`–`8` | Window scale multiplier (default: `3` = 768×720) | `--scale 4` (1024×960 window) |
 | `--debug-audio` | *None* | Enable real-time audio buffer and underrun diagnostics | `--debug-audio` |
 | `--save-audio-on-exit` | *None* | Save the session audio as a `.wav` to `./audio_dumps/` on exit (off by default) | `--save-audio-on-exit` |
